@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "ARCA — Adaptive Context Governance Platform",
+  "version": "1.0.0",
+  "description": "Extend LLM context windows through client-side semantic memory management, fading, and validation-driven compression.",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://*.perplexity.ai/*"
+  ],
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://*.perplexity.ai/*"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "dist/popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dist/*",
+        "assets/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}
