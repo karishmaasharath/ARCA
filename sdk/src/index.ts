@@ -8,6 +8,7 @@ import { ValidationEngine } from './validator';
 import { RepairEngine } from './repair';
 import { AdaptiveTokenAllocator } from './allocator';
 import { estimateTokens, generateId } from './utils';
+import { MemoryRetriever } from './retriever';
 
 export class ARCA {
   private store: MemoryStore;
@@ -163,7 +164,13 @@ export class ARCA {
     const config = AdaptiveTokenAllocator.getConfig(platform);
     
     // Get all memories
-    const memories = await this.store.getAll();
+    const allMemories = await this.store.getAll();
+
+    const memories = MemoryRetriever.retrieve(
+      newPrompt,
+      allMemories,
+      3
+  );
 
     // Increment references for existing memories matching content keywords
     const promptKeywords = newPrompt.toLowerCase().split(/\s+/).filter(w => w.length > 3);
@@ -178,7 +185,7 @@ export class ARCA {
 
     // Re-score based on new frequencies
     await this.recalculateScores();
-    const freshMemories = await this.store.getAll();
+    const freshMemories = memories;
 
     // 1. Run Semantic Fading under the platform token budget
     // Subtract new prompt token size first from target budget
@@ -186,6 +193,13 @@ export class ARCA {
     const availableBudget = Math.max(config.maxTokens - newPromptTokens, 100);
 
     const { active, faded, totalActiveTokens } = SemanticFadingEngine.fade(freshMemories, availableBudget);
+    const uniqueActive = active.filter(
+      (memory, index, self) =>
+        index === self.findIndex(
+          m => m.content.trim().toLowerCase() ===
+               memory.content.trim().toLowerCase()
+        )
+    );
 
     // 2. Compress the active memory set
     let originalActiveContent = active.map(m => m.content).join('\n\n');
@@ -196,7 +210,7 @@ export class ARCA {
     if (config.compressionStrategy === 'minimal') strategy = 'minimal';
     else if (config.compressionStrategy === 'aggressive') strategy = 'aggressive';
 
-    const compressionResult = TokenCompressor.compressMemories(active, strategy);
+    const compressionResult = TokenCompressor.compressMemories(uniqueActive, strategy);
 
     // Compile compressed memory block
     let compressedMemoryBlock = compressionResult.compressedMemories.map(m => m.content).join('\n\n');
@@ -263,3 +277,4 @@ export * from './validator';
 export * from './repair';
 export * from './allocator';
 export * from './utils';
+export * from './retriever';

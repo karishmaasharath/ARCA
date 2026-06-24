@@ -36,7 +36,12 @@ const DEFAULT_MEMORIES = [
   { content: "Build a responsive registration page with email verification.", type: "session" as MemoryType },
   { content: "Add a database schema script for user profile metadata.", type: "session" as MemoryType },
   { content: "Hello! I am excited to start collaborating on this codebase.", type: "ephemeral" as MemoryType },
-  { content: "Thank you for the quick reviews, that makes sense.", type: "ephemeral" as MemoryType }
+  { content: "Thank you for the quick reviews, that makes sense.", type: "ephemeral" as MemoryType },
+  { content: "The office coffee machine is broken.", type: "ephemeral" as MemoryType },
+  { content: "Schedule the quarterly marketing review.", type: "session" as MemoryType },
+  { content: "The design team prefers dark blue branding.", type: "persistent" as MemoryType },
+  { content: "Remember to order pizza for Friday.", type: "ephemeral" as MemoryType },
+  { content: "Our social media strategy focuses on Instagram.", type: "persistent" as MemoryType },
 ];
 
 const NODE_TYPES = {
