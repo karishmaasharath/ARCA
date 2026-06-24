@@ -10,6 +10,9 @@ export interface Memory {
   relatedMemories: string[]; // IDs of related memories
   confidenceScore: number;   // 0.0 - 1.0
   pinned: boolean;
+  dependencyCount?: number;
+  fadingScore?: number;
+  explanation?: string;
 }
 
 export interface ContextHealth {

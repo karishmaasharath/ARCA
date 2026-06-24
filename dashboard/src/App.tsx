@@ -560,10 +560,15 @@ export default function App() {
                       <span className="text-[9px] font-mono text-red-300 block font-bold uppercase tracking-wider mb-1">
                         ⚠️ Faded from Context (Pruned due to budget limits)
                       </span>
-                      <div className="max-h-16 overflow-y-auto space-y-1">
+                      <div className="max-h-24 overflow-y-auto space-y-1.5 pr-1">
                         {optimizedResult.fadedMemories.map(m => (
-                          <div key={m.id} className="text-[10px] font-mono text-gray-400 line-clamp-1">
-                            • [{m.type}] {m.content}
+                          <div key={m.id} className="text-[10px] font-mono text-gray-300 border-b border-red-900/10 pb-1.5 last:border-0 last:pb-0">
+                            <div>• <span className="font-bold text-red-400">[{m.type}]</span> {m.content}</div>
+                            {m.explanation && (
+                              <div className="text-gray-500 pl-3 italic mt-0.5">
+                                Reason: {m.explanation}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

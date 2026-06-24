@@ -166,11 +166,20 @@ export class ARCA {
     // Get all memories
     const allMemories = await this.store.getAll();
 
-    const memories = MemoryRetriever.retrieve(
+    // Retrieve memories with keyword overlap (limit raised to 20 to find relevant ones)
+    const retrievedMemories = MemoryRetriever.retrieve(
       newPrompt,
       allMemories,
-      3
-  );
+      20
+    );
+
+    // Always include all immutable and pinned memories to ensure project rules/facts are never lost
+    const memories = [...retrievedMemories];
+    for (const mem of allMemories) {
+      if ((mem.type === 'immutable' || mem.pinned) && !memories.some(m => m.id === mem.id)) {
+        memories.push(mem);
+      }
+    }
 
     // Increment references for existing memories matching content keywords
     const promptKeywords = newPrompt.toLowerCase().split(/\s+/).filter(w => w.length > 3);
@@ -185,14 +194,21 @@ export class ARCA {
 
     // Re-score based on new frequencies
     await this.recalculateScores();
-    const freshMemories = memories;
+    
+    // Fetch fresh copies with updated scores from store to pass to fading engine
+    const allFreshMemories = await this.store.getAll();
+    const freshMemories = memories.map(m => allFreshMemories.find(fm => fm.id === m.id) || m);
 
-    // 1. Run Semantic Fading under the platform token budget
-    // Subtract new prompt token size first from target budget
-    const newPromptTokens = estimateTokens(newPrompt);
-    const availableBudget = Math.max(config.maxTokens - newPromptTokens, 100);
+    // 1. Run Semantic Fading under the platform memory budget
+    // Determine the max memories allowed based on the platform's compression strategy
+    let maxMemories = 6;
+    if (config.compressionStrategy === 'minimal') {
+      maxMemories = 10;
+    } else if (config.compressionStrategy === 'aggressive') {
+      maxMemories = 4;
+    }
 
-    const { active, faded, totalActiveTokens } = SemanticFadingEngine.fade(freshMemories, availableBudget);
+    const { active, faded, totalActiveTokens } = SemanticFadingEngine.fade(freshMemories, maxMemories);
     const uniqueActive = active.filter(
       (memory, index, self) =>
         index === self.findIndex(
@@ -203,7 +219,11 @@ export class ARCA {
 
     // 2. Compress the active memory set
     let originalActiveContent = active.map(m => m.content).join('\n\n');
-    let originalTotalTokens = newPromptTokens + totalActiveTokens;
+    
+    // Fix: originalTotalTokens must be calculated before fading to accurately measure token savings!
+    const totalOriginalMemoriesTokens = freshMemories.reduce((sum, mem) => sum + estimateTokens(mem.content), 0);
+    const newPromptTokens = estimateTokens(newPrompt);
+    let originalTotalTokens = newPromptTokens + totalOriginalMemoriesTokens;
 
     // Apply strategy: minimal, moderate, aggressive, or structural
     let strategy: 'minimal' | 'moderate' | 'aggressive' = 'moderate';

@@ -51,7 +51,9 @@ export class ImportanceScorer {
       score += recencyBonus;
 
       // 6. Dependency count (connected memories) (+4 per connection, capped at +12)
-      const relationsBonus = Math.min((memory.relatedMemories?.length || 0) * 4, 12);
+      const depCount = memory.relatedMemories?.length || 0;
+      memory.dependencyCount = depCount;
+      const relationsBonus = Math.min(depCount * 4, 12);
       score += relationsBonus;
 
       // 7. Clamp the score between 0 and 99 (100 is reserved for Immutable)

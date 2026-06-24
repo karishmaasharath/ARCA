@@ -1,72 +1,217 @@
 import { Memory } from './types';
-import { ImportanceScorer } from './scorer';
 import { estimateTokens } from './utils';
 
 export class SemanticFadingEngine {
   /**
-   * Evaluates memories against a token budget, splitting them into
-   * 'active' (to be kept in context) and 'faded' (to be pruned).
+   * Evaluates memories against a memory count budget (maxMemories) or a token budget,
+   * splitting them into kept (active) and removed (faded) memories.
    * 
-   * Immutable and pinned memories are prioritized first.
+   * Pinned memories are always preserved and bypass the fading logic.
+   * Immutable memories are preserved unless absolutely necessary.
    */
   public static fade(
     memories: Memory[],
-    tokenBudget: number
-  ): { active: Memory[]; faded: Memory[]; totalActiveTokens: number } {
-    // 1. Re-calculate dynamic scores
-    const scoredMemories = ImportanceScorer.calculateScores([...memories]);
+    budget: number
+  ): {
+    keptMemories: Memory[];
+    removedMemories: Memory[];
+    totalBefore: number;
+    totalAfter: number;
+    reductionPercentage: number;
+    
+    // Backwards compatibility
+    active: Memory[];
+    faded: Memory[];
+    totalActiveTokens: number;
+  } {
+    const currentTime = Date.now();
 
-    // 2. Separate Immutable and Pinned, which have absolute preservation priority
-    const mustKeep: Memory[] = [];
-    const candidates: Memory[] = [];
+    // 1. Calculate fading scores and explanations for all memories
+    const scoredMemories = memories.map(mem => {
+      const dependencyCount = mem.relatedMemories?.length || 0;
 
-    for (const mem of scoredMemories) {
-      if (mem.type === 'immutable' || mem.pinned) {
-        mustKeep.push(mem);
-      } else {
-        candidates.push(mem);
+      // Importance Weight
+      let importanceWeight = 10;
+      switch (mem.type) {
+        case 'immutable':
+          importanceWeight = 100;
+          break;
+        case 'persistent':
+          importanceWeight = 40;
+          break;
+        case 'session':
+          importanceWeight = 20;
+          break;
+        case 'ephemeral':
+          importanceWeight = 10;
+          break;
       }
-    }
 
-    // Sort priority: Immutable and pinned first, then candidates by score descending
-    // (If scores are equal, sort by newer timestamp first)
-    candidates.sort((a, b) => {
-      if (b.importanceScore !== a.importanceScore) {
-        return b.importanceScore - a.importanceScore;
-      }
+      // Reference Weight
+      const referenceWeight = Math.min(mem.referenceCount * 2, 20);
+
+      // Recency Weight (exponential decay with 15-day half-life/decay constant)
+      const elapsedMs = Math.max(0, currentTime - mem.timestamp);
+      const elapsedDays = elapsedMs / (24 * 60 * 60 * 1000);
+      const recencyWeight = Math.round(20 * Math.exp(-elapsedDays / 15));
+
+      // Dependency Weight
+      const dependencyWeight = Math.min(dependencyCount * 4, 20);
+
+      const fadingScore = importanceWeight + referenceWeight + recencyWeight + dependencyWeight;
+
+      // Generate explainability reason
+      const explanation = SemanticFadingEngine.generateExplanation(mem, elapsedDays);
+
+      // Create updated memory object
+      const updatedMem: Memory = {
+        ...mem,
+        dependencyCount,
+        fadingScore,
+        explanation
+      };
+
+      return updatedMem;
+    });
+
+    // 2. Separate Pinned and Unpinned memories
+    const pinned = scoredMemories.filter(m => m.pinned);
+    const unpinned = scoredMemories.filter(m => !m.pinned);
+
+    // Sort unpinned memories by fadingScore descending, then by timestamp descending
+    unpinned.sort((a, b) => {
+      const scoreDiff = (b.fadingScore || 0) - (a.fadingScore || 0);
+      if (scoreDiff !== 0) return scoreDiff;
       return b.timestamp - a.timestamp;
     });
 
-    const active: Memory[] = [];
-    const faded: Memory[] = [];
-    let currentTokens = 0;
+    const keptMemories: Memory[] = [];
+    const removedMemories: Memory[] = [];
 
-    // First, try to fit all must-keep memories
-    for (const mem of mustKeep) {
-      const tokens = estimateTokens(mem.content);
-      // Even if must-keep exceeds budget, we are forced to keep Immutable/Pinned items
-      active.push(mem);
-      currentTokens += tokens;
-    }
+    // Detect if the budget represents token budget or memory count limit
+    // Custom threshold: if budget is >= 50, it is treated as a token budget.
+    // Otherwise, it is treated as a maximum memory count limit.
+    const isTokenBudget = budget >= 50;
 
-    // Now, fit candidates until the budget is filled
-    for (const mem of candidates) {
-      const tokens = estimateTokens(mem.content);
-      if (currentTokens + tokens <= tokenBudget) {
-        active.push(mem);
-        currentTokens += tokens;
-      } else {
-        faded.push(mem);
+    if (isTokenBudget) {
+      let currentTokens = 0;
+
+      // Pinned memories must be kept
+      for (const mem of pinned) {
+        keptMemories.push(mem);
+        currentTokens += estimateTokens(mem.content);
+      }
+
+      // Fit unpinned memories
+      for (const mem of unpinned) {
+        const tokens = estimateTokens(mem.content);
+        
+        // Immutable memories must be kept unless it is absolutely necessary
+        // For token budgets, we force-keep unpinned immutable memories to avoid breaking critical rules
+        if (mem.type === 'immutable') {
+          keptMemories.push(mem);
+          currentTokens += tokens;
+        } else {
+          if (currentTokens + tokens <= budget) {
+            keptMemories.push(mem);
+            currentTokens += tokens;
+          } else {
+            removedMemories.push(mem);
+          }
+        }
+      }
+    } else {
+      // Count budget (maxMemories)
+      // Keep all pinned memories (they bypass fading logic and count limits)
+      for (const mem of pinned) {
+        keptMemories.push(mem);
+      }
+
+      // Fill remaining budget slots with highest-scoring unpinned memories
+      for (const mem of unpinned) {
+        if (keptMemories.length < budget) {
+          keptMemories.push(mem);
+        } else {
+          removedMemories.push(mem);
+        }
       }
     }
 
-    // Sort active memories chronologically to maintain coherence in the final prompt
-    active.sort((a, b) => a.timestamp - b.timestamp);
+    // Sort active/kept memories chronologically to maintain prompt coherence
+    keptMemories.sort((a, b) => a.timestamp - b.timestamp);
+
+    const totalBefore = memories.length;
+    const totalAfter = keptMemories.length;
+    const reductionPercentage = totalBefore > 0
+      ? Math.round(((totalBefore - totalAfter) / totalBefore) * 100)
+      : 0;
+
+    const totalActiveTokens = keptMemories.reduce(
+      (sum, mem) => sum + estimateTokens(mem.content),
+      0
+    );
 
     return {
-      active,
-      faded,
-      totalActiveTokens: currentTokens
+      keptMemories,
+      removedMemories,
+      totalBefore,
+      totalAfter,
+      reductionPercentage,
+      
+      // Backwards compatibility
+      active: keptMemories,
+      faded: removedMemories,
+      totalActiveTokens
     };
+  }
+
+  /**
+   * Generates a human-readable explanation of why a memory was kept or removed.
+   */
+  private static generateExplanation(memory: Memory, elapsedDays: number): string {
+    if (memory.pinned) {
+      return "Pinned memory. Bypasses fading logic.";
+    }
+
+    const parts: string[] = [];
+
+    // 1. Importance description
+    if (memory.type === 'immutable') {
+      parts.push("Immutable memory.");
+    } else if (memory.type === 'persistent') {
+      parts.push("Persistent memory.");
+    } else if (memory.type === 'session') {
+      parts.push("Session memory.");
+    } else {
+      parts.push("Low importance.");
+    }
+
+    // 2. Reference count
+    if (memory.referenceCount > 0) {
+      parts.push(`Referenced ${memory.referenceCount} times.`);
+    } else {
+      parts.push("Reference count = 0.");
+    }
+
+    // 3. Dependencies
+    const depCount = memory.relatedMemories?.length || 0;
+    if (depCount > 0) {
+      parts.push(`Connected to ${depCount} other ${depCount === 1 ? 'memory' : 'memories'}.`);
+    } else {
+      parts.push("No dependencies.");
+    }
+
+    // 4. Recency
+    if (elapsedDays < 1) {
+      if (memory.type === 'ephemeral' || memory.referenceCount === 0) {
+        parts.push("Recently used.");
+      }
+    } else {
+      if (memory.type === 'ephemeral' || memory.referenceCount === 0) {
+        parts.push("Not recently used.");
+      }
+    }
+
+    return parts.join(' ');
   }
 }
