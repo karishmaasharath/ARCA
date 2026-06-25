@@ -220,25 +220,6 @@ export class ARCA {
     const platform = platformName || AdaptiveTokenAllocator.detectPlatform();
     const config = AdaptiveTokenAllocator.getConfig(platform);
     
-    // --- Automatic Memory Extraction ---
-    const segments = newPrompt.split(/[.!?]+(?:\s+|\n|$)+|\n+/);
-    for (const segment of segments) {
-      const trimmed = segment.trim();
-      if (!trimmed) continue;
-
-      // Skip conversational filler and small talk
-      if (this.isConversationalFiller(trimmed)) {
-        continue;
-      }
-
-      // Classify the segment
-      const classification = await this.classifier.classify(trimmed);
-
-      // Automatically store high-value memories (immutable, persistent, session)
-      if (classification.type === 'immutable' || classification.type === 'persistent' || classification.type === 'session') {
-        await this.ingest(trimmed, { type: classification.type });
-      }
-    }
 
     // Get all memories
     const allMemories = await this.store.getAll();
@@ -355,13 +336,62 @@ export class ARCA {
     const optimizedPrompt = finalMemoryBlock.trim() !== ''
       ? `[ARCA Context Memory]\n${finalMemoryBlock}\n\n[Active Session Prompt]\n${newPrompt}`
       : newPrompt;
+// --- Automatic Memory Extraction ---
+const segments = newPrompt.split(/[.!?]+(?:\s+|\n|$)+|\n+/);
 
-    return {
-      optimizedPrompt,
-      metrics,
-      activeMemories: active,
-      fadedMemories: faded
-    };
+for (const segment of segments) {
+  const trimmed = segment.trim();
+  if (!trimmed) continue;
+
+  // Skip conversational filler and small talk
+  if (this.isConversationalFiller(trimmed)) {
+    continue;
+  }
+
+  // Classify the segment
+  const classification = await this.classifier.classify(trimmed);
+
+  // Automatically store high-value memories (immutable, persistent, session)
+  if (
+    classification.type === 'immutable' ||
+    classification.type === 'persistent' ||
+    classification.type === 'session'
+  ) {
+    // Check existing memories to avoid duplicates
+    const existing = await this.store.getAll();
+
+    const words = trimmed
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(word => word.length > 3);
+
+    const alreadyExists = existing.some(memory => {
+      const existingWords = memory.content
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(word => word.length > 3);
+
+      const overlap = words.filter(word =>
+        existingWords.includes(word)
+      ).length;
+
+      return words.length > 0 && overlap >= words.length * 0.8;
+    });
+
+    if (!alreadyExists) {
+      await this.ingest(trimmed, {
+        type: classification.type
+      });
+    }
+  }
+}
+
+return {
+  optimizedPrompt,
+  metrics,
+  activeMemories: active,
+  fadedMemories: faded
+};
   }
 }
 export * from './types';

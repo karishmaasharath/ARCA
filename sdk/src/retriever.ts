@@ -20,18 +20,30 @@ export class MemoryRetriever {
           .toLowerCase()
           .split(/\s+/);
 
-        let overlap = queryWords.filter(
-          word => memoryWords.includes(word)
-        ).length;
-
-        // Boost important memory types
-        if (memory.type === 'immutable') {
-          overlap += 5;
-        }
-
-        if (memory.type === 'persistent') {
-          overlap += 2;
-        }
+        // Base keyword relevance
+const keywordScore = queryWords.filter(
+    word => memoryWords.includes(word)
+  ).length;
+  
+  // Priority bonus based on memory type
+  let priorityBonus = 0;
+  
+  if (memory.type === 'immutable') {
+    priorityBonus = 5;
+  } else if (memory.type === 'persistent') {
+    priorityBonus = 2;
+  }
+  
+  // Existing dynamic scores
+  const importanceBonus = memory.importanceScore / 20;
+  const referenceBonus = Math.min(memory.referenceCount, 5);
+  
+  // Final hybrid retrieval score
+  const overlap =
+    keywordScore +
+    priorityBonus +
+    importanceBonus +
+    referenceBonus;
 
         return {
           memory,
