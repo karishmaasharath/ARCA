@@ -187,6 +187,41 @@ export class SemanticClassifier {
 
   // Core classification endpoint
   public async classify(text: string): Promise<{ type: MemoryType; confidence: number }> {
+    const lowerText = text.toLowerCase().trim();
+    
+    // Heuristic override for Immutable: strict rules and constraints
+    const strictImmutablePatterns = [
+      /^(never\s+use|do\s+not\s+use|avoid\s+using)\s+/i,
+      /\b(must\s+follow|must\s+comply\s+with|compliance\s+guidelines)\b/i,
+      /\bunder\s+no\s+circumstances\b/i
+    ];
+    for (const pattern of strictImmutablePatterns) {
+      if (pattern.test(lowerText)) {
+        return { type: 'immutable', confidence: 0.95 };
+      }
+    }
+
+    // Heuristic override for Persistent: core architecture, tech stack & db configurations
+    const strictPersistentPatterns = [
+      /\b(backend\s+uses|frontend\s+uses|stack\s+is|database\s+is|built\s+with|built\s+using)\s+(fastapi|postgresql|sqlalchemy|react|vite|redux|django|express|mongodb|docker|aws)\b/i,
+      /\bmain\s+database\s+is\b/i
+    ];
+    for (const pattern of strictPersistentPatterns) {
+      if (pattern.test(lowerText)) {
+        return { type: 'persistent', confidence: 0.90 };
+      }
+    }
+
+    // Heuristic override for Session: action-oriented active tasks
+    const strictSessionPatterns = [
+      /^(build|create|implement|fix|refactor|add\s+a|setup|write\s+unit\s+tests?\s+for)\s+/i
+    ];
+    for (const pattern of strictSessionPatterns) {
+      if (pattern.test(lowerText)) {
+        return { type: 'session', confidence: 0.90 };
+      }
+    }
+
     // If embedding model is ready, run vector-based similarity
     if (this.isModelReady && this.pipelineInstance) {
       const inputEmbed = await this.getTransformersEmbedding(text);

@@ -28,6 +28,44 @@ export class ARCA {
     return this.classifier;
   }
 
+  private isConversationalFiller(text: string): boolean {
+    const trimmed = text.trim().toLowerCase();
+    if (!trimmed) return true;
+
+    // Remove basic punctuation to check word count and matches
+    const cleanText = trimmed.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").trim();
+    const words = cleanText.split(/\s+/).filter(w => w.length > 0);
+
+    // If it's extremely short (e.g. 1-2 words) check against a list of filler/chitchat words
+    if (words.length <= 2) {
+      const fillerWords = [
+        'hello', 'hi', 'hey', 'thanks', 'thank', 'ok', 'okay', 'cool', 'awesome', 'great', 
+        'yes', 'no', 'sure', 'fine', 'perfect', 'greetings', 'yo', 'welcome', 'bye', 
+        'goodbye', 'nice', 'good', 'well', 'done', 'indeed', 'totally', 'absolutely'
+      ];
+      if (words.every(w => fillerWords.includes(w))) {
+        return true;
+      }
+    }
+
+    // Common filler/small talk regex patterns
+    const fillerPatterns = [
+      /^(hello|hi|hey|greetings|howdy|yo|good\s+morning|good\s+afternoon|good\s+evening)\b/i,
+      /\b(how\s+are\s+you|how\s+is\s+it\s+going|how's\s+it\s+going|what's\s+up|whats\s+up|how\s+are\s+things)\b/i,
+      /\b(nice\s+work|good\s+job|great\s+job|well\s+done|thank\s+you|thanks|awesome|perfect|cool)\b/i,
+      /\b(hope\s+you\s+are\s+doing\s+well|hope\s+you're\s+doing\s+well|let's\s+start|let's\s+get\s+started)\b/i,
+      /^(nice\s+work|good\s+work|keep\s+it\s+up|keep\s+up\s+the\s+good\s+work)\b/i
+    ];
+
+    for (const pattern of fillerPatterns) {
+      if (pattern.test(trimmed)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   /**
    * Ingests a new message or constraint, classifies it, finds semantic relationships,
    * scores its importance, and stores it in IndexedDB.
@@ -37,6 +75,25 @@ export class ARCA {
     options?: { type?: MemoryType; pinned?: boolean }
   ): Promise<Memory> {
     const memories = await this.store.getAll();
+
+    // Prevent duplicate memories by checking normalized content
+    const normalize = (text: string) => text.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim();
+    const normalizedContent = normalize(content);
+    const duplicate = memories.find(m => normalize(m.content) === normalizedContent);
+
+    if (duplicate) {
+      duplicate.timestamp = Date.now();
+      if (options?.type) {
+        duplicate.type = options.type;
+      }
+      if (options?.pinned !== undefined) {
+        duplicate.pinned = options.pinned;
+      }
+      await this.store.save(duplicate);
+      await this.recalculateScores();
+      const freshMemories = await this.store.getAll();
+      return freshMemories.find(m => m.id === duplicate.id) || duplicate;
+    }
     
     // 1. Determine Type (Classify)
     let type: MemoryType = options?.type || 'ephemeral';
@@ -163,6 +220,26 @@ export class ARCA {
     const platform = platformName || AdaptiveTokenAllocator.detectPlatform();
     const config = AdaptiveTokenAllocator.getConfig(platform);
     
+    // --- Automatic Memory Extraction ---
+    const segments = newPrompt.split(/[.!?]+(?:\s+|\n|$)+|\n+/);
+    for (const segment of segments) {
+      const trimmed = segment.trim();
+      if (!trimmed) continue;
+
+      // Skip conversational filler and small talk
+      if (this.isConversationalFiller(trimmed)) {
+        continue;
+      }
+
+      // Classify the segment
+      const classification = await this.classifier.classify(trimmed);
+
+      // Automatically store high-value memories (immutable, persistent, session)
+      if (classification.type === 'immutable' || classification.type === 'persistent' || classification.type === 'session') {
+        await this.ingest(trimmed, { type: classification.type });
+      }
+    }
+
     // Get all memories
     const allMemories = await this.store.getAll();
 

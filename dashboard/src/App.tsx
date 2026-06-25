@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   ReactFlow, 
   MiniMap, 
@@ -14,7 +14,6 @@ import {
   ShieldAlert, 
   BrainCircuit, 
   Sliders, 
-  Plus, 
   Search, 
   Pin, 
   Send, 
@@ -55,8 +54,6 @@ export default function App() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState<'all' | MemoryType>('all');
-  const [newContent, setNewContent] = useState('');
-  const [newType, setNewType] = useState<MemoryType | 'auto'>('auto');
   
   // Playground State
   const [promptInput, setPromptInput] = useState(
@@ -157,23 +154,6 @@ export default function App() {
   }, [memories]);
 
   // Action Handlers
-  const handleIngest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newContent.trim()) return;
-
-    try {
-      const opts: { type?: MemoryType } = {};
-      if (newType !== 'auto') {
-        opts.type = newType;
-      }
-      await arca.ingest(newContent, opts);
-      setNewContent('');
-      setNewType('auto');
-      await refreshMemories();
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
   const handlePin = async (id: string) => {
     const mem = memories.find(m => m.id === id);
@@ -201,6 +181,7 @@ export default function App() {
       try {
         const result = await arca.optimize(promptInput, selectedPlatform);
         setOptimizedResult(result);
+        await refreshMemories();
       } catch (err) {
         console.error(err);
       } finally {
@@ -271,35 +252,16 @@ export default function App() {
             <Sliders size={16} className="text-teal" /> MEMORY GOVERNANCE PANEL
           </h2>
 
-          {/* Add Memory Form */}
-          <form onSubmit={handleIngest} className="bg-navy-light/40 border border-slate-dark p-3.5 rounded-lg mb-5">
-            <span className="text-[10px] font-mono text-gray-400 block mb-1">INGEST NEW MEMORY STATEMENT</span>
-            <textarea
-              value={newContent}
-              onChange={(e) => setNewContent(e.target.value)}
-              placeholder="e.g. Avoid third party hosting for REST APIs."
-              className="w-full h-16 bg-navy-dark text-xs p-2.5 rounded border border-slate-dark focus:outline-none focus:border-teal font-mono placeholder:text-gray-500 resize-none mb-3"
-            />
-            <div className="flex gap-2">
-              <select
-                value={newType}
-                onChange={(e) => setNewType(e.target.value as MemoryType | 'auto')}
-                className="flex-1 bg-navy-dark border border-slate-dark rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-teal text-gray-300"
-              >
-                <option value="auto">Auto Classify (ONNX)</option>
-                <option value="immutable">Immutable (Strict Rule)</option>
-                <option value="persistent">Persistent (Fact)</option>
-                <option value="session">Session (Task)</option>
-                <option value="ephemeral">Ephemeral (Context)</option>
-              </select>
-              <button
-                type="submit"
-                className="bg-teal hover:bg-teal-dark text-navy-dark font-semibold px-4 py-1.5 rounded text-xs flex items-center gap-1.5 transition-colors font-mono"
-              >
-                <Plus size={14} /> INGEST
-              </button>
+          {/* Automatic Extraction Info Banner */}
+          <div className="bg-teal/5 border border-teal/20 p-3.5 rounded-lg mb-5 text-xs font-mono">
+            <div className="flex items-center gap-2 text-teal font-bold mb-1.5">
+              <BrainCircuit size={14} className="animate-pulse" />
+              <span>AUTOMATIC EXTRACTION ACTIVE</span>
             </div>
-          </form>
+            <p className="text-gray-300 leading-relaxed text-[11px]">
+              Memories are automatically identified, classified, and stored when prompts are submitted. Use the Simulation Playground on the right to test memory ingestion.
+            </p>
+          </div>
 
           {/* Search and Filters */}
           <div className="space-y-3 mb-4">
