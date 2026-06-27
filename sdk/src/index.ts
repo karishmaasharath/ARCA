@@ -1,6 +1,6 @@
 import { Memory, MemoryType, ContextHealth, PlatformType, ValidationResult } from './types';
 import { MemoryStore } from './store';
-import { SemanticClassifier } from './classifier';
+import { SemanticClassifier, extractEntities, segmentText, isFiller, extractMemoryCandidate, calculateConfidence, Entity } from './classifier';
 import { ImportanceScorer } from './scorer';
 import { SemanticFadingEngine } from './fading';
 import { TokenCompressor } from './compressor';
@@ -13,10 +13,20 @@ import { MemoryRetriever } from './retriever';
 export class ARCA {
   private store: MemoryStore;
   private classifier: SemanticClassifier;
+  private confidenceThreshold: number;
 
-  constructor() {
+  constructor(options?: { confidenceThreshold?: number }) {
     this.store = new MemoryStore();
     this.classifier = new SemanticClassifier();
+    this.confidenceThreshold = options?.confidenceThreshold ?? 70;
+  }
+
+  public getConfidenceThreshold(): number {
+    return this.confidenceThreshold;
+  }
+
+  public setConfidenceThreshold(threshold: number): void {
+    this.confidenceThreshold = threshold;
   }
 
   // Getters for store and classifier
@@ -70,41 +80,120 @@ export class ARCA {
    * Ingests a new message or constraint, classifies it, finds semantic relationships,
    * scores its importance, and stores it in IndexedDB.
    */
-  public async ingest(
+  private async findSemanticallySimilarMemory(
     content: string,
-    options?: { type?: MemoryType; pinned?: boolean }
-  ): Promise<Memory> {
-    const memories = await this.store.getAll();
-
-    // Prevent duplicate memories by checking normalized content
+    memories: Memory[],
+    entities: Entity[]
+  ): Promise<Memory | null> {
     const normalize = (text: string) => text.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim();
     const normalizedContent = normalize(content);
-    const duplicate = memories.find(m => normalize(m.content) === normalizedContent);
 
+    // 1. Exact match first
+    const exact = memories.find(m => normalize(m.content) === normalizedContent);
+    if (exact) return exact;
+
+    // 2. Vector-based similarity if model is ready
+    if (this.classifier.getIsModelReady()) {
+      const candidateEmbed = await this.classifier.getEmbedding(content);
+      if (candidateEmbed) {
+        for (const mem of memories) {
+          const memEmbed = await this.classifier.getEmbedding(mem.content);
+          if (memEmbed) {
+            const similarity = this.classifier.cosineSimilarity(candidateEmbed, memEmbed);
+            if (similarity >= 0.85) {
+              return mem;
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Fallback: Entity overlap & Jaccard token similarity
+    const textTokens = content.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    for (const mem of memories) {
+      const memTokens = mem.content.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      
+      const sA = new Set(textTokens);
+      const sB = new Set(memTokens);
+      const intersection = new Set([...sA].filter(x => sB.has(x)));
+      const union = new Set([...sA, ...sB]);
+      const jaccard = union.size === 0 ? 0 : intersection.size / union.size;
+
+      const memEntities = extractEntities(mem.content);
+      const sharedEntities = entities.filter(e => memEntities.some(me => me.name.toLowerCase() === e.name.toLowerCase()));
+
+      console.log(`[DEBUG] Comparing "${content}" and "${mem.content}":`);
+      console.log(`  jaccard: ${jaccard}`);
+      console.log(`  entities:`, entities.map(e => e.name));
+      console.log(`  memEntities:`, memEntities.map(e => e.name));
+      console.log(`  sharedEntities:`, sharedEntities.map(e => e.name));
+
+      // Match if they share all extracted entities and Jaccard similarity is high enough, OR if Jaccard similarity is very high
+      if ((entities.length > 0 && sharedEntities.length === entities.length && jaccard >= 0.5) || jaccard >= 0.75) {
+        return mem;
+      }
+    }
+
+    return null;
+  }
+
+  public async ingest(
+    content: string,
+    options?: { type?: MemoryType; pinned?: boolean; confidenceThreshold?: number }
+  ): Promise<Memory | null> {
+    // Discard conversational filler immediately
+    if (isFiller(content)) {
+      return null;
+    }
+
+    const memories = await this.store.getAll();
+    const entities = extractEntities(content);
+
+    // 1. Check for duplicate semantically similar memory
+    const duplicate = await this.findSemanticallySimilarMemory(content, memories, entities);
     if (duplicate) {
+      duplicate.referenceCount = (duplicate.referenceCount || 0) + 1;
       duplicate.timestamp = Date.now();
-      if (options?.type) {
-        duplicate.type = options.type;
+      // Reinforce importance
+      if (duplicate.confidenceScore < 100) {
+        duplicate.confidenceScore = Math.min(100, duplicate.confidenceScore + 5);
       }
       if (options?.pinned !== undefined) {
         duplicate.pinned = options.pinned;
+      }
+      if (options?.type) {
+        duplicate.type = options.type;
       }
       await this.store.save(duplicate);
       await this.recalculateScores();
       const freshMemories = await this.store.getAll();
       return freshMemories.find(m => m.id === duplicate.id) || duplicate;
     }
-    
-    // 1. Determine Type (Classify)
+
+    // 2. Determine Type & Confidence Score
     let type: MemoryType = options?.type || 'ephemeral';
-    let confidenceScore = 1.0;
+    let confidenceScore = 100;
+    let confidenceReason = 'Explicitly specified type.';
+
     if (!options?.type) {
-      const classification = await this.classifier.classify(content);
+      const classification = await this.classifier.classify(content, entities);
       type = classification.type;
-      confidenceScore = classification.confidence;
+      const confResult = calculateConfidence(content, type, entities);
+      confidenceScore = confResult.score;
+      confidenceReason = confResult.reason;
+    } else {
+      const confResult = calculateConfidence(content, type, entities);
+      confidenceScore = confResult.score;
+      confidenceReason = confResult.reason;
     }
 
-    // 2. Determine semantic relationships with existing memories
+    // 3. Confidence Threshold Check
+    const threshold = options?.confidenceThreshold ?? this.confidenceThreshold;
+    if (confidenceScore < threshold) {
+      return null;
+    }
+
+    // 4. Determine semantic relationships with existing memories
     const relatedMemories: string[] = [];
     const textTokens = content.toLowerCase().split(/\s+/).filter(w => w.length > 3);
     
@@ -124,7 +213,7 @@ export class ARCA {
       }
     }
 
-    // 3. Construct new Memory
+    // 5. Construct new Memory
     const newMemory: Memory = {
       id: generateId(),
       content: content.trim(),
@@ -134,10 +223,11 @@ export class ARCA {
       referenceCount: 0,
       relatedMemories,
       confidenceScore,
+      confidenceReason,
       pinned: options?.pinned || false
     };
 
-    // 4. Save and calculate dynamic scores for all memories
+    // 6. Save and calculate dynamic scores for all memories
     await this.store.save(newMemory);
     await this.recalculateScores();
 
@@ -220,6 +310,22 @@ export class ARCA {
     const platform = platformName || AdaptiveTokenAllocator.detectPlatform();
     const config = AdaptiveTokenAllocator.getConfig(platform);
     
+    // --- Automatic Memory Extraction ---
+    const segments = segmentText(newPrompt);
+    for (const segment of segments) {
+      if (isFiller(segment)) {
+        continue;
+      }
+
+      const entities = extractEntities(segment);
+      const candidate = extractMemoryCandidate(segment, entities);
+
+      if (isFiller(candidate)) {
+        continue;
+      }
+
+      await this.ingest(candidate);
+    }
 
     // Get all memories
     const allMemories = await this.store.getAll();

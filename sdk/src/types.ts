@@ -8,7 +8,8 @@ export interface Memory {
   importanceScore: number; // 0 - 100
   referenceCount: number;
   relatedMemories: string[]; // IDs of related memories
-  confidenceScore: number;   // 0.0 - 1.0
+  confidenceScore: number;   // 0 - 100
+  confidenceReason?: string;
   pinned: boolean;
   dependencyCount?: number;
   fadingScore?: number;

@@ -6,6 +6,7 @@ export class MemoryStore {
   private db: IDBDatabase | null = null;
   private isIndexedDBAvailable = false;
   private localStorageFallbackKey = 'arca-memories-fallback';
+  private inMemoryFallback: Memory[] = [];
 
   constructor() {
     this.init();
@@ -158,6 +159,8 @@ export class MemoryStore {
     if (!this.isIndexedDBAvailable) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem(this.localStorageFallbackKey);
+      } else {
+        this.inMemoryFallback = [];
       }
       return;
     }
@@ -178,7 +181,9 @@ export class MemoryStore {
   }
 
   private getLocalFallback(): Memory[] {
-    if (typeof window === 'undefined') return [];
+    if (typeof window === 'undefined') {
+      return JSON.parse(JSON.stringify(this.inMemoryFallback));
+    }
     try {
       const data = localStorage.getItem(this.localStorageFallbackKey);
       return data ? JSON.parse(data) : [];
@@ -188,7 +193,10 @@ export class MemoryStore {
   }
 
   private setLocalFallback(memories: Memory[]): void {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined') {
+      this.inMemoryFallback = memories;
+      return;
+    }
     try {
       localStorage.setItem(this.localStorageFallbackKey, JSON.stringify(memories));
     } catch (e) {

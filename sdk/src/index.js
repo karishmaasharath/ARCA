@@ -1,0 +1,394 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ARCA = void 0;
+const store_1 = require("./store");
+const classifier_1 = require("./classifier");
+const scorer_1 = require("./scorer");
+const fading_1 = require("./fading");
+const compressor_1 = require("./compressor");
+const validator_1 = require("./validator");
+const repair_1 = require("./repair");
+const allocator_1 = require("./allocator");
+const utils_1 = require("./utils");
+const retriever_1 = require("./retriever");
+class ARCA {
+    store;
+    classifier;
+    confidenceThreshold;
+    constructor(options) {
+        this.store = new store_1.MemoryStore();
+        this.classifier = new classifier_1.SemanticClassifier();
+        this.confidenceThreshold = options?.confidenceThreshold ?? 70;
+    }
+    getConfidenceThreshold() {
+        return this.confidenceThreshold;
+    }
+    setConfidenceThreshold(threshold) {
+        this.confidenceThreshold = threshold;
+    }
+    // Getters for store and classifier
+    getStore() {
+        return this.store;
+    }
+    getClassifier() {
+        return this.classifier;
+    }
+    isConversationalFiller(text) {
+        const trimmed = text.trim().toLowerCase();
+        if (!trimmed)
+            return true;
+        // Remove basic punctuation to check word count and matches
+        const cleanText = trimmed.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").trim();
+        const words = cleanText.split(/\s+/).filter(w => w.length > 0);
+        // If it's extremely short (e.g. 1-2 words) check against a list of filler/chitchat words
+        if (words.length <= 2) {
+            const fillerWords = [
+                'hello', 'hi', 'hey', 'thanks', 'thank', 'ok', 'okay', 'cool', 'awesome', 'great',
+                'yes', 'no', 'sure', 'fine', 'perfect', 'greetings', 'yo', 'welcome', 'bye',
+                'goodbye', 'nice', 'good', 'well', 'done', 'indeed', 'totally', 'absolutely'
+            ];
+            if (words.every(w => fillerWords.includes(w))) {
+                return true;
+            }
+        }
+        // Common filler/small talk regex patterns
+        const fillerPatterns = [
+            /^(hello|hi|hey|greetings|howdy|yo|good\s+morning|good\s+afternoon|good\s+evening)\b/i,
+            /\b(how\s+are\s+you|how\s+is\s+it\s+going|how's\s+it\s+going|what's\s+up|whats\s+up|how\s+are\s+things)\b/i,
+            /\b(nice\s+work|good\s+job|great\s+job|well\s+done|thank\s+you|thanks|awesome|perfect|cool)\b/i,
+            /\b(hope\s+you\s+are\s+doing\s+well|hope\s+you're\s+doing\s+well|let's\s+start|let's\s+get\s+started)\b/i,
+            /^(nice\s+work|good\s+work|keep\s+it\s+up|keep\s+up\s+the\s+good\s+work)\b/i
+        ];
+        for (const pattern of fillerPatterns) {
+            if (pattern.test(trimmed)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    /**
+     * Ingests a new message or constraint, classifies it, finds semantic relationships,
+     * scores its importance, and stores it in IndexedDB.
+     */
+    async findSemanticallySimilarMemory(content, memories, entities) {
+        const normalize = (text) => text.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim();
+        const normalizedContent = normalize(content);
+        // 1. Exact match first
+        const exact = memories.find(m => normalize(m.content) === normalizedContent);
+        if (exact)
+            return exact;
+        // 2. Vector-based similarity if model is ready
+        if (this.classifier.getIsModelReady()) {
+            const candidateEmbed = await this.classifier.getEmbedding(content);
+            if (candidateEmbed) {
+                for (const mem of memories) {
+                    const memEmbed = await this.classifier.getEmbedding(mem.content);
+                    if (memEmbed) {
+                        const similarity = this.classifier.cosineSimilarity(candidateEmbed, memEmbed);
+                        if (similarity >= 0.85) {
+                            return mem;
+                        }
+                    }
+                }
+            }
+        }
+        // 3. Fallback: Entity overlap & Jaccard token similarity
+        const textTokens = content.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        for (const mem of memories) {
+            const memTokens = mem.content.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            const sA = new Set(textTokens);
+            const sB = new Set(memTokens);
+            const intersection = new Set([...sA].filter(x => sB.has(x)));
+            const union = new Set([...sA, ...sB]);
+            const jaccard = union.size === 0 ? 0 : intersection.size / union.size;
+            const memEntities = (0, classifier_1.extractEntities)(mem.content);
+            const sharedEntities = entities.filter(e => memEntities.some(me => me.name.toLowerCase() === e.name.toLowerCase()));
+            console.log(`[DEBUG] Comparing "${content}" and "${mem.content}":`);
+            console.log(`  jaccard: ${jaccard}`);
+            console.log(`  entities:`, entities.map(e => e.name));
+            console.log(`  memEntities:`, memEntities.map(e => e.name));
+            console.log(`  sharedEntities:`, sharedEntities.map(e => e.name));
+            // Match if they share all extracted entities and Jaccard similarity is high enough, OR if Jaccard similarity is very high
+            if ((entities.length > 0 && sharedEntities.length === entities.length && jaccard >= 0.5) || jaccard >= 0.75) {
+                return mem;
+            }
+        }
+        return null;
+    }
+    async ingest(content, options) {
+        // Discard conversational filler immediately
+        if ((0, classifier_1.isFiller)(content)) {
+            return null;
+        }
+        const memories = await this.store.getAll();
+        const entities = (0, classifier_1.extractEntities)(content);
+        // 1. Check for duplicate semantically similar memory
+        const duplicate = await this.findSemanticallySimilarMemory(content, memories, entities);
+        if (duplicate) {
+            duplicate.referenceCount = (duplicate.referenceCount || 0) + 1;
+            duplicate.timestamp = Date.now();
+            // Reinforce importance
+            if (duplicate.confidenceScore < 100) {
+                duplicate.confidenceScore = Math.min(100, duplicate.confidenceScore + 5);
+            }
+            if (options?.pinned !== undefined) {
+                duplicate.pinned = options.pinned;
+            }
+            if (options?.type) {
+                duplicate.type = options.type;
+            }
+            await this.store.save(duplicate);
+            await this.recalculateScores();
+            const freshMemories = await this.store.getAll();
+            return freshMemories.find(m => m.id === duplicate.id) || duplicate;
+        }
+        // 2. Determine Type & Confidence Score
+        let type = options?.type || 'ephemeral';
+        let confidenceScore = 100;
+        let confidenceReason = 'Explicitly specified type.';
+        if (!options?.type) {
+            const classification = await this.classifier.classify(content, entities);
+            type = classification.type;
+            const confResult = (0, classifier_1.calculateConfidence)(content, type, entities);
+            confidenceScore = confResult.score;
+            confidenceReason = confResult.reason;
+        }
+        else {
+            const confResult = (0, classifier_1.calculateConfidence)(content, type, entities);
+            confidenceScore = confResult.score;
+            confidenceReason = confResult.reason;
+        }
+        // 3. Confidence Threshold Check
+        const threshold = options?.confidenceThreshold ?? this.confidenceThreshold;
+        if (confidenceScore < threshold) {
+            return null;
+        }
+        // 4. Determine semantic relationships with existing memories
+        const relatedMemories = [];
+        const textTokens = content.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        for (const mem of memories) {
+            const memTokens = mem.content.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+            const intersection = textTokens.filter(t => memTokens.includes(t));
+            // Heuristic overlap check - link if they share 3 or more distinctive words
+            if (intersection.length >= 3) {
+                relatedMemories.push(mem.id);
+                // Bidirectional linking
+                if (!mem.relatedMemories.includes(mem.id)) {
+                    mem.relatedMemories.push(mem.id);
+                    await this.store.save(mem);
+                }
+            }
+        }
+        // 5. Construct new Memory
+        const newMemory = {
+            id: (0, utils_1.generateId)(),
+            content: content.trim(),
+            type,
+            timestamp: Date.now(),
+            importanceScore: 0, // calculated next
+            referenceCount: 0,
+            relatedMemories,
+            confidenceScore,
+            confidenceReason,
+            pinned: options?.pinned || false
+        };
+        // 6. Save and calculate dynamic scores for all memories
+        await this.store.save(newMemory);
+        await this.recalculateScores();
+        // Fetch the stored version with updated scores
+        const freshMemories = await this.store.getAll();
+        return freshMemories.find(m => m.id === newMemory.id) || newMemory;
+    }
+    /**
+     * Triggers score recalculation for all saved memories.
+     */
+    async recalculateScores() {
+        const memories = await this.store.getAll();
+        const updated = scorer_1.ImportanceScorer.calculateScores(memories);
+        await this.store.saveAll(updated);
+    }
+    /**
+     * Promotes a memory's type (e.g. Ephemeral -> Session).
+     */
+    async promote(id, type) {
+        const memories = await this.store.getAll();
+        const idx = memories.findIndex(m => m.id === id);
+        if (idx >= 0) {
+            memories[idx].type = type;
+            if (type === 'immutable') {
+                memories[idx].importanceScore = 100;
+            }
+            await this.store.saveAll(memories);
+            await this.recalculateScores();
+        }
+    }
+    /**
+     * Pins or unpins a memory.
+     */
+    async pin(id, pinned) {
+        const memories = await this.store.getAll();
+        const idx = memories.findIndex(m => m.id === id);
+        if (idx >= 0) {
+            memories[idx].pinned = pinned;
+            await this.store.saveAll(memories);
+            await this.recalculateScores();
+        }
+    }
+    /**
+     * Deletes a memory and removes any relations pointing to it.
+     */
+    async delete(id) {
+        const memories = await this.store.getAll();
+        // Remove references
+        const updated = memories.map(m => {
+            if (m.relatedMemories.includes(id)) {
+                return {
+                    ...m,
+                    relatedMemories: m.relatedMemories.filter(rId => rId !== id)
+                };
+            }
+            return m;
+        }).filter(m => m.id !== id);
+        await this.store.saveAll(updated);
+        await this.recalculateScores();
+    }
+    /**
+     * The core Context Governance pipeline.
+     * Compiles memories into an optimized prompt segment under the platform budget.
+     */
+    async optimize(newPrompt, platformName) {
+        const platform = platformName || allocator_1.AdaptiveTokenAllocator.detectPlatform();
+        const config = allocator_1.AdaptiveTokenAllocator.getConfig(platform);
+        // --- Automatic Memory Extraction ---
+        const segments = (0, classifier_1.segmentText)(newPrompt);
+        for (const segment of segments) {
+            if ((0, classifier_1.isFiller)(segment)) {
+                continue;
+            }
+            const entities = (0, classifier_1.extractEntities)(segment);
+            const candidate = (0, classifier_1.extractMemoryCandidate)(segment, entities);
+            if ((0, classifier_1.isFiller)(candidate)) {
+                continue;
+            }
+            await this.ingest(candidate);
+        }
+        // Get all memories
+        const allMemories = await this.store.getAll();
+        // Retrieve memories with keyword overlap (limit raised to 20 to find relevant ones)
+        const retrievedMemories = retriever_1.MemoryRetriever.retrieve(newPrompt, allMemories, 20);
+        // Always include all immutable and pinned memories to ensure project rules/facts are never lost
+        const memories = [...retrievedMemories];
+        for (const mem of allMemories) {
+            if ((mem.type === 'immutable' || mem.pinned) && !memories.some(m => m.id === mem.id)) {
+                memories.push(mem);
+            }
+        }
+        // Increment references for existing memories matching content keywords
+        const promptKeywords = newPrompt.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        for (const mem of memories) {
+            const matchWords = mem.content.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+            const overlap = promptKeywords.filter(w => matchWords.includes(w));
+            if (overlap.length >= 2) {
+                mem.referenceCount += 1;
+                await this.store.save(mem);
+            }
+        }
+        // Re-score based on new frequencies
+        await this.recalculateScores();
+        // Fetch fresh copies with updated scores from store to pass to fading engine
+        const allFreshMemories = await this.store.getAll();
+        const freshMemories = memories.map(m => allFreshMemories.find(fm => fm.id === m.id) || m);
+        // 1. Run Semantic Fading under the platform memory budget
+        // Determine the max memories allowed based on the platform's compression strategy
+        let maxMemories = 6;
+        if (config.compressionStrategy === 'minimal') {
+            maxMemories = 10;
+        }
+        else if (config.compressionStrategy === 'aggressive') {
+            maxMemories = 4;
+        }
+        const { active, faded, totalActiveTokens } = fading_1.SemanticFadingEngine.fade(freshMemories, maxMemories);
+        const uniqueActive = active.filter((memory, index, self) => index === self.findIndex(m => m.content.trim().toLowerCase() ===
+            memory.content.trim().toLowerCase()));
+        // 2. Compress the active memory set
+        let originalActiveContent = active.map(m => m.content).join('\n\n');
+        // Fix: originalTotalTokens must be calculated before fading to accurately measure token savings!
+        const totalOriginalMemoriesTokens = freshMemories.reduce((sum, mem) => sum + (0, utils_1.estimateTokens)(mem.content), 0);
+        const newPromptTokens = (0, utils_1.estimateTokens)(newPrompt);
+        let originalTotalTokens = newPromptTokens + totalOriginalMemoriesTokens;
+        // Apply strategy: minimal, moderate, aggressive, or structural
+        let strategy = 'moderate';
+        if (config.compressionStrategy === 'minimal')
+            strategy = 'minimal';
+        else if (config.compressionStrategy === 'aggressive')
+            strategy = 'aggressive';
+        const compressionResult = compressor_1.TokenCompressor.compressMemories(uniqueActive, strategy);
+        // Compile compressed memory block
+        let compressedMemoryBlock = compressionResult.compressedMemories.map(m => m.content).join('\n\n');
+        // 3. Validation & Repair Loop
+        const pipelineResult = repair_1.RepairEngine.runPipeline(originalActiveContent, (txt) => compressor_1.TokenCompressor.compressText(txt, strategy));
+        let finalMemoryBlock = pipelineResult.finalOutput;
+        // Calculate final tokens
+        const finalMemoryTokens = (0, utils_1.estimateTokens)(finalMemoryBlock);
+        const totalCompressedTokens = newPromptTokens + finalMemoryTokens;
+        const tokenSavings = originalTotalTokens - totalCompressedTokens;
+        const tokenSavingsRate = originalTotalTokens > 0 ? (tokenSavings / originalTotalTokens) * 100 : 0;
+        // Compile rules and constraints for health scoring
+        const ruleValidation = validator_1.ValidationEngine.validate(originalActiveContent, finalMemoryBlock);
+        const totalOriginalRulesCount = originalActiveContent.split(/[.!?\n]+/).filter(s => {
+            const l = s.toLowerCase();
+            return ['never', 'do not', 'must', 'avoid', 'rule'].some(k => l.includes(k));
+        }).length;
+        const rulePreservationRate = totalOriginalRulesCount > 0
+            ? Math.max(0, Math.round(((totalOriginalRulesCount - ruleValidation.missingRules.length) / totalOriginalRulesCount) * 100))
+            : 100;
+        // Health score: combines rule preservation and fit rate
+        // If we preserved 100% of rules, health is high. Deduct if critical rules were broken.
+        const ruleDeduction = ruleValidation.missingRules.length * 20;
+        const healthScore = Math.max(0, Math.min(100, 100 - ruleDeduction));
+        const metrics = {
+            healthScore,
+            rulePreservationRate,
+            tokenSavingsRate: Math.max(0, Math.round(tokenSavingsRate)),
+            originalTokens: originalTotalTokens,
+            compressedTokens: totalCompressedTokens
+        };
+        // Construct final optimized output prompt
+        // We prepend the compressed memory context, and append the user's active prompt
+        const optimizedPrompt = finalMemoryBlock.trim() !== ''
+            ? `[ARCA Context Memory]\n${finalMemoryBlock}\n\n[Active Session Prompt]\n${newPrompt}`
+            : newPrompt;
+        return {
+            optimizedPrompt,
+            metrics,
+            activeMemories: active,
+            fadedMemories: faded
+        };
+    }
+}
+exports.ARCA = ARCA;
+__exportStar(require("./types"), exports);
+__exportStar(require("./store"), exports);
+__exportStar(require("./classifier"), exports);
+__exportStar(require("./scorer"), exports);
+__exportStar(require("./fading"), exports);
+__exportStar(require("./compressor"), exports);
+__exportStar(require("./validator"), exports);
+__exportStar(require("./repair"), exports);
+__exportStar(require("./allocator"), exports);
+__exportStar(require("./utils"), exports);
+__exportStar(require("./retriever"), exports);
