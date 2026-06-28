@@ -10,6 +10,7 @@ export interface Memory {
   relatedMemories: string[]; // IDs of related memories
   confidenceScore: number;   // 0 - 100
   confidenceReason?: string;
+  embedding?: number[];
   pinned: boolean;
   dependencyCount?: number;
   fadingScore?: number;

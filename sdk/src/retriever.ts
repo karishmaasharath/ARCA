@@ -1,17 +1,22 @@
 import { Memory } from './types';
+import { EmbeddingEngine } from './embedding';
 
 export class MemoryRetriever {
 
-  public static retrieve(
+    public static async retrieve(
     query: string,
     memories: Memory[],
     limit = 20
-  ): Memory[] {
+): Promise<Memory[]> {
 
     const queryWords = query
       .toLowerCase()
       .split(/\s+/)
       .filter(word => word.length > 3);
+
+      // Generate embedding for the query once
+const queryEmbedding =
+await EmbeddingEngine.generateEmbedding(query);
 
     const results = memories
       .map(memory => {
@@ -20,6 +25,22 @@ export class MemoryRetriever {
           .toLowerCase()
           .split(/\s+/);
 
+          let semanticScore = 0;
+
+if (memory.embedding) {
+  semanticScore =
+    EmbeddingEngine.cosineSimilarity(
+      queryEmbedding,
+      memory.embedding
+    );
+}
+console.log(
+    memory.content,
+    "Has embedding:",
+    !!memory.embedding,
+    "Semantic:",
+    semanticScore.toFixed(3)
+  );
         // Base keyword relevance
 const keywordScore = queryWords.filter(
     word => memoryWords.includes(word)
@@ -40,11 +61,11 @@ const keywordScore = queryWords.filter(
   
   // Final hybrid retrieval score
   const overlap =
-    keywordScore +
-    priorityBonus +
-    importanceBonus +
-    referenceBonus;
-
+  (keywordScore * 2) +
+  (semanticScore * 10) +
+  priorityBonus +
+  importanceBonus +
+  referenceBonus;
         return {
           memory,
           overlap

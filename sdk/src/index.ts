@@ -9,6 +9,7 @@ import { RepairEngine } from './repair';
 import { AdaptiveTokenAllocator } from './allocator';
 import { estimateTokens, generateId } from './utils';
 import { MemoryRetriever } from './retriever';
+import { EmbeddingEngine } from './embedding';
 
 export class ARCA {
   private store: MemoryStore;
@@ -212,7 +213,10 @@ export class ARCA {
         }
       }
     }
-
+// Generate semantic embedding for retrieval
+const embedding = await EmbeddingEngine.generateEmbedding(
+  content.trim()
+);
     // 5. Construct new Memory
     const newMemory: Memory = {
       id: generateId(),
@@ -224,6 +228,7 @@ export class ARCA {
       relatedMemories,
       confidenceScore,
       confidenceReason,
+      embedding,
       pinned: options?.pinned || false
     };
 
@@ -331,7 +336,7 @@ export class ARCA {
     const allMemories = await this.store.getAll();
 
     // Retrieve memories with keyword overlap (limit raised to 20 to find relevant ones)
-    const retrievedMemories = MemoryRetriever.retrieve(
+    const retrievedMemories = await MemoryRetriever.retrieve(
       newPrompt,
       allMemories,
       20
@@ -443,54 +448,6 @@ export class ARCA {
       ? `[ARCA Context Memory]\n${finalMemoryBlock}\n\n[Active Session Prompt]\n${newPrompt}`
       : newPrompt;
 // --- Automatic Memory Extraction ---
-const segments = newPrompt.split(/[.!?]+(?:\s+|\n|$)+|\n+/);
-
-for (const segment of segments) {
-  const trimmed = segment.trim();
-  if (!trimmed) continue;
-
-  // Skip conversational filler and small talk
-  if (this.isConversationalFiller(trimmed)) {
-    continue;
-  }
-
-  // Classify the segment
-  const classification = await this.classifier.classify(trimmed);
-
-  // Automatically store high-value memories (immutable, persistent, session)
-  if (
-    classification.type === 'immutable' ||
-    classification.type === 'persistent' ||
-    classification.type === 'session'
-  ) {
-    // Check existing memories to avoid duplicates
-    const existing = await this.store.getAll();
-
-    const words = trimmed
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(word => word.length > 3);
-
-    const alreadyExists = existing.some(memory => {
-      const existingWords = memory.content
-        .toLowerCase()
-        .split(/\s+/)
-        .filter(word => word.length > 3);
-
-      const overlap = words.filter(word =>
-        existingWords.includes(word)
-      ).length;
-
-      return words.length > 0 && overlap >= words.length * 0.8;
-    });
-
-    if (!alreadyExists) {
-      await this.ingest(trimmed, {
-        type: classification.type
-      });
-    }
-  }
-}
 
 return {
   optimizedPrompt,
@@ -511,3 +468,4 @@ export * from './repair';
 export * from './allocator';
 export * from './utils';
 export * from './retriever';
+export * from './migrations';

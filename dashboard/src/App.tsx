@@ -23,7 +23,14 @@ import {
   Info
 } from 'lucide-react';
 
-import { ARCA, Memory, MemoryType, PlatformType, ContextHealth } from 'arca-sdk';
+import {
+  ARCA,
+  Memory,
+  MemoryType,
+  PlatformType,
+  ContextHealth,
+  MemoryMigrations
+} from 'arca-sdk';
 import { MemoryNode } from './MemoryNode';
 
 // Seed default data to populate dashboard immediately
@@ -90,8 +97,21 @@ export default function App() {
 
   // Handle initialization
   useEffect(() => {
-    refreshMemories();
-  }, [refreshMemories]);
+
+    const initialize = async () => {
+  
+      await refreshMemories();
+  
+      await MemoryMigrations.backfillEmbeddings(
+        arca.getStore()
+      );
+  
+      await refreshMemories();
+    };
+  
+    initialize();
+  
+  }, [arca, refreshMemories]);
 
   // Handle changes in memory list & rebuild graph layout
   useEffect(() => {
@@ -333,10 +353,15 @@ export default function App() {
                   </p>
 
                   <div className="flex items-center justify-between text-[10px] font-mono text-gray-400 border-t border-slate-dark/50 pt-2">
-                    <span>Refs: {mem.referenceCount}</span>
-                    <div className="flex gap-2">
-                      {mem.type !== 'immutable' && (
-                        <>
+
+  <div className="flex flex-col">
+    <span>Refs: {mem.referenceCount}</span>
+    <span>Embedding: {mem.embedding ? "yes" : "no"}</span>
+  </div>
+
+  <div className="flex gap-2">
+    {mem.type !== 'immutable' && (
+      <>
                           <button
                             onClick={() => handlePromote(mem.id, 'immutable')}
                             className="hover:text-teal text-gray-400 transition-colors"
