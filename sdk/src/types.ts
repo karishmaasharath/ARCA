@@ -37,3 +37,16 @@ export interface ValidationResult {
   missingRules: string[];
   missingEntities: string[];
 }
+
+export type AllocationState = 'Healthy' | 'Warning' | 'Critical';
+
+export interface ContextAllocation {
+  promptTokens: number;
+  availableMemoryBudget: number;
+  reservedResponseTokens: number;
+  safetyBuffer: number;
+  remainingWindowCapacity: number;
+  budgetUtilization: number;
+  allocationState: AllocationState;
+}
+
