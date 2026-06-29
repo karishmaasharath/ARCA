@@ -1,5 +1,6 @@
 import { Memory } from './types';
 import { EmbeddingEngine } from './embedding';
+import { Benchmark } from "./benchmark";
 
 export class MemoryRetriever {
 
@@ -72,11 +73,48 @@ const keywordScore = queryWords.filter(
         };
 
       })
-      .filter(item => item.overlap > 0)
-      .sort((a, b) => b.overlap - a.overlap)
-      .slice(0, limit)
-      .map(item => item.memory);
+      const ranked = results
+  .filter(item => item.overlap > 0)
+  .sort((a, b) => b.overlap - a.overlap);
 
-    return results;
+const retrieved = ranked
+  .slice(0, limit)
+  .map(item => item.memory);
+
+// Expand with related memories
+const expanded: Memory[] = [];
+const visited = new Set<string>();
+const queue: Memory[] = [...retrieved];
+
+while (queue.length > 0 && expanded.length < limit) {
+
+  const current = queue.shift()!;
+
+  if (visited.has(current.id)) {
+    continue;
   }
+
+  visited.add(current.id);
+  expanded.push(current);
+
+  for (const relatedId of current.relatedMemories) {
+
+    const related = memories.find(
+      m => m.id === relatedId
+    );
+
+    if (
+      related &&
+      !visited.has(related.id)
+    ) {
+      queue.push(related);
+    }
+  }
+}
+const metrics = Benchmark.run(expanded);
+
+console.log("ARCA Retrieval Benchmark");
+console.table(metrics);
+return expanded;
+}
 }

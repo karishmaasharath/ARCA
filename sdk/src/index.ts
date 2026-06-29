@@ -81,63 +81,122 @@ export class ARCA {
    * Ingests a new message or constraint, classifies it, finds semantic relationships,
    * scores its importance, and stores it in IndexedDB.
    */
-  private async findSemanticallySimilarMemory(
-    content: string,
-    memories: Memory[],
-    entities: Entity[]
-  ): Promise<Memory | null> {
-    const normalize = (text: string) => text.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").replace(/\s+/g, " ").trim();
-    const normalizedContent = normalize(content);
+ private async findSemanticallySimilarMemory(
+  content: string,
+  memories: Memory[],
+  entities: Entity[]
+): Promise<Memory | null> {
 
-    // 1. Exact match first
-    const exact = memories.find(m => normalize(m.content) === normalizedContent);
-    if (exact) return exact;
+  const normalize = (text: string) =>
+    text
+      .toLowerCase()
+      .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
 
-    // 2. Vector-based similarity if model is ready
-    if (this.classifier.getIsModelReady()) {
-      const candidateEmbed = await this.classifier.getEmbedding(content);
-      if (candidateEmbed) {
-        for (const mem of memories) {
-          const memEmbed = await this.classifier.getEmbedding(mem.content);
-          if (memEmbed) {
-            const similarity = this.classifier.cosineSimilarity(candidateEmbed, memEmbed);
-            if (similarity >= 0.85) {
-              return mem;
-            }
-          }
-        }
-      }
-    }
+  const normalizedContent = normalize(content);
 
-    // 3. Fallback: Entity overlap & Jaccard token similarity
-    const textTokens = content.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-    for (const mem of memories) {
-      const memTokens = mem.content.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-      
-      const sA = new Set(textTokens);
-      const sB = new Set(memTokens);
-      const intersection = new Set([...sA].filter(x => sB.has(x)));
-      const union = new Set([...sA, ...sB]);
-      const jaccard = union.size === 0 ? 0 : intersection.size / union.size;
+  // Exact duplicate
+  const exact = memories.find(
+    m => normalize(m.content) === normalizedContent
+  );
 
-      const memEntities = extractEntities(mem.content);
-      const sharedEntities = entities.filter(e => memEntities.some(me => me.name.toLowerCase() === e.name.toLowerCase()));
-
-      console.log(`[DEBUG] Comparing "${content}" and "${mem.content}":`);
-      console.log(`  jaccard: ${jaccard}`);
-      console.log(`  entities:`, entities.map(e => e.name));
-      console.log(`  memEntities:`, memEntities.map(e => e.name));
-      console.log(`  sharedEntities:`, sharedEntities.map(e => e.name));
-
-      // Match if they share all extracted entities and Jaccard similarity is high enough, OR if Jaccard similarity is very high
-      if ((entities.length > 0 && sharedEntities.length === entities.length && jaccard >= 0.5) || jaccard >= 0.75) {
-        return mem;
-      }
-    }
-
-    return null;
+  if (exact) {
+    return exact;
   }
 
+  const candidateEmbedding =
+  await EmbeddingEngine.generateEmbedding(
+    content.trim()
+  );
+  const textTokens = content
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(w => w.length > 2);
+
+  let bestMemory: Memory | null = null;
+  let bestScore = 0;
+
+  for (const mem of memories) {
+
+    // -----------------------------
+    // Embedding Score
+    // -----------------------------
+    let embeddingScore = 0;
+
+    if (candidateEmbedding) {
+
+      const memEmbedding = mem.embedding;
+
+      if (candidateEmbedding && memEmbedding) {
+        embeddingScore =
+          this.classifier.cosineSimilarity(
+            candidateEmbedding,
+            memEmbedding
+          );
+      }
+    }
+
+    // -----------------------------
+    // Lexical Score (Jaccard)
+    // -----------------------------
+    const memTokens = mem.content
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(w => w.length > 2);
+
+    const setA = new Set(textTokens);
+    const setB = new Set(memTokens);
+
+    const intersection =
+      [...setA].filter(x => setB.has(x)).length;
+
+    const union =
+      new Set([...setA, ...setB]).size;
+
+    const lexicalScore =
+      union === 0 ? 0 : intersection / union;
+
+    // -----------------------------
+    // Entity Score
+    // -----------------------------
+    const memEntities =
+      extractEntities(mem.content);
+
+    const sharedEntities =
+      entities.filter(entity =>
+        memEntities.some(
+          m =>
+            m.name.toLowerCase() ===
+            entity.name.toLowerCase()
+        )
+      );
+
+    const entityScore =
+      entities.length === 0
+        ? 0
+        : sharedEntities.length / entities.length;
+
+    // -----------------------------
+    // Hybrid Score
+    // -----------------------------
+    const finalScore =
+      (embeddingScore * 0.6) +
+      (entityScore * 0.2) +
+      (lexicalScore * 0.2);
+
+    if (finalScore > bestScore) {
+      bestScore = finalScore;
+      bestMemory = mem;
+    }
+  }
+
+  if (bestScore >= 0.75) {
+    return bestMemory;
+  }
+
+  return null;
+}
   public async ingest(
     content: string,
     options?: { type?: MemoryType; pinned?: boolean; confidenceThreshold?: number }
@@ -194,29 +253,38 @@ export class ARCA {
       return null;
     }
 
-    // 4. Determine semantic relationships with existing memories
     const relatedMemories: string[] = [];
-    const textTokens = content.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-    
-    for (const mem of memories) {
-      const memTokens = mem.content.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-      const intersection = textTokens.filter(t => memTokens.includes(t));
-      
-      // Heuristic overlap check - link if they share 3 or more distinctive words
-      if (intersection.length >= 3) {
-        relatedMemories.push(mem.id);
-        
-        // Bidirectional linking
-        if (!mem.relatedMemories.includes(mem.id)) {
-          mem.relatedMemories.push(mem.id);
-          await this.store.save(mem);
-        }
-      }
+
+const candidateEmbedding =
+  await EmbeddingEngine.generateEmbedding(
+    content.trim()
+  );
+
+for (const mem of memories) {
+
+  if (!mem.embedding) {
+    continue;
+  }
+
+  const similarity =
+    EmbeddingEngine.cosineSimilarity(
+      candidateEmbedding,
+      mem.embedding
+    );
+
+  if (similarity >= 0.65) {
+
+    if (!relatedMemories.includes(mem.id)) {
+      relatedMemories.push(mem.id);
     }
-// Generate semantic embedding for retrieval
-const embedding = await EmbeddingEngine.generateEmbedding(
-  content.trim()
-);
+
+  }
+
+}
+const embedding =
+  await EmbeddingEngine.generateEmbedding(
+    content.trim()
+  );
     // 5. Construct new Memory
     const newMemory: Memory = {
       id: generateId(),
