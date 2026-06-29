@@ -50,3 +50,13 @@ export interface ContextAllocation {
   allocationState: AllocationState;
 }
 
+export interface BudgetSelectionResult {
+  selectedMemories: Memory[];
+  skippedMemories: Memory[];
+  usedBudget: number;
+  remainingBudget: number;
+  selectedTokens: number;
+  skippedTokens: number;
+}
+
+
