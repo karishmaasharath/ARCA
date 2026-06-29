@@ -1,4 +1,4 @@
-import { Memory, MemoryType, ContextHealth, PlatformType, ValidationResult } from './types';
+import { Memory, MemoryType, ContextHealth, PlatformType, ValidationResult, ContextAllocation } from './types';
 import { MemoryStore } from './store';
 import { SemanticClassifier, extractEntities, segmentText, isFiller, extractMemoryCandidate, calculateConfidence, Entity } from './classifier';
 import { ImportanceScorer } from './scorer';
@@ -6,7 +6,7 @@ import { SemanticFadingEngine } from './fading';
 import { TokenCompressor } from './compressor';
 import { ValidationEngine } from './validator';
 import { RepairEngine } from './repair';
-import { AdaptiveTokenAllocator } from './allocator';
+import { AdaptiveTokenAllocator, ContextAllocator } from './allocator';
 import { estimateTokens, generateId } from './utils';
 import { MemoryRetriever } from './retriever';
 import { EmbeddingEngine } from './embedding';
@@ -373,15 +373,24 @@ const embedding =
    */
   public async optimize(
     newPrompt: string,
-    platformName?: PlatformType
+    platformName?: PlatformType,
+    options?: {
+      maxContextWindow?: number;
+      reservedResponseTokens?: number;
+      safetyBuffer?: number;
+    }
   ): Promise<{
     optimizedPrompt: string;
     metrics: ContextHealth;
     activeMemories: Memory[];
     fadedMemories: Memory[];
+    allocation: ContextAllocation;
   }> {
     const platform = platformName || AdaptiveTokenAllocator.detectPlatform();
     const config = AdaptiveTokenAllocator.getConfig(platform);
+
+    const maxContextWindow = options?.maxContextWindow ?? config.maxTokens;
+    const allocation = ContextAllocator.allocate(newPrompt, maxContextWindow, options);
     
     // --- Automatic Memory Extraction ---
     const segments = segmentText(newPrompt);
@@ -521,7 +530,8 @@ return {
   optimizedPrompt,
   metrics,
   activeMemories: active,
-  fadedMemories: faded
+  fadedMemories: faded,
+  allocation
 };
   }
 }

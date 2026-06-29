@@ -1,4 +1,5 @@
-import { PlatformConfig, PlatformType } from './types';
+import { ContextAllocation, PlatformConfig, PlatformType } from './types';
+import { estimateTokens } from './utils';
 
 export class AdaptiveTokenAllocator {
   private static CONFIGS: Record<PlatformType, PlatformConfig> = {
@@ -51,3 +52,63 @@ export class AdaptiveTokenAllocator {
     return this.CONFIGS[platform] || this.CONFIGS.local;
   }
 }
+
+export class ContextAllocator {
+  /**
+   * Calculates the context division, memory budget, and allocation state.
+   */
+  public static allocate(
+    userPrompt: string,
+    maxContextWindow: number,
+    options?: {
+      reservedResponseTokens?: number;
+      safetyBuffer?: number;
+    }
+  ): ContextAllocation {
+    const promptTokens = estimateTokens(userPrompt);
+    const safetyBuffer = options?.safetyBuffer ?? 500;
+
+    // Deterministic tiered heuristic for response reservation if not explicitly provided
+    let reservedResponseTokens = options?.reservedResponseTokens;
+    if (reservedResponseTokens === undefined) {
+      if (promptTokens < 1000) {
+        reservedResponseTokens = 1000;
+      } else if (promptTokens < 4000) {
+        reservedResponseTokens = 1500;
+      } else {
+        reservedResponseTokens = 2000;
+      }
+    }
+
+    let availableMemoryBudget = maxContextWindow - promptTokens - reservedResponseTokens - safetyBuffer;
+    if (availableMemoryBudget < 0) {
+      availableMemoryBudget = 0;
+    }
+
+    let remainingWindowCapacity = maxContextWindow - promptTokens;
+    if (remainingWindowCapacity < 0) {
+      remainingWindowCapacity = 0;
+    }
+
+    const totalConsumed = promptTokens + reservedResponseTokens + safetyBuffer;
+    const budgetUtilization = Math.min(100, Math.round((totalConsumed / maxContextWindow) * 10000) / 100);
+
+    let allocationState: 'Healthy' | 'Warning' | 'Critical' = 'Healthy';
+    if (budgetUtilization >= 95) {
+      allocationState = 'Critical';
+    } else if (budgetUtilization > 75) {
+      allocationState = 'Warning';
+    }
+
+    return {
+      promptTokens,
+      availableMemoryBudget,
+      reservedResponseTokens,
+      safetyBuffer,
+      remainingWindowCapacity,
+      budgetUtilization,
+      allocationState
+    };
+  }
+}
+
