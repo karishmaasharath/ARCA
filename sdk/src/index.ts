@@ -10,6 +10,7 @@ import { AdaptiveTokenAllocator, ContextAllocator } from './allocator';
 import { estimateTokens, generateId } from './utils';
 import { MemoryRetriever } from './retriever';
 import { EmbeddingEngine } from './embedding';
+import { MemoryLifecycle } from "./lifecycle";
 
 export class ARCA {
   private store: MemoryStore;
@@ -212,8 +213,11 @@ export class ARCA {
     // 1. Check for duplicate semantically similar memory
     const duplicate = await this.findSemanticallySimilarMemory(content, memories, entities);
     if (duplicate) {
-      duplicate.referenceCount = (duplicate.referenceCount || 0) + 1;
-      duplicate.timestamp = Date.now();
+      duplicate.referenceCount =
+  (duplicate.referenceCount || 0) + 1;
+
+// Refresh last access time
+duplicate.timestamp = Date.now();
       // Reinforce importance
       if (duplicate.confidenceScore < 100) {
         duplicate.confidenceScore = Math.min(100, duplicate.confidenceScore + 5);
@@ -313,9 +317,18 @@ const embedding =
    * Triggers score recalculation for all saved memories.
    */
   public async recalculateScores(): Promise<void> {
-    const memories = await this.store.getAll();
-    const updated = ImportanceScorer.calculateScores(memories);
+
+    const memories =
+      await this.store.getAll();
+  
+    const scored =
+      ImportanceScorer.calculateScores(memories);
+  
+    const updated =
+      MemoryLifecycle.applyDecay(scored);
+  
     await this.store.saveAll(updated);
+  
   }
 
   /**

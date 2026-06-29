@@ -40,9 +40,9 @@ export class ImportanceScorer {
         score += 25;
       }
 
-      // 4. Frequency of reference (+4 points per reference, capped at +16)
-      const freqBonus = Math.min(memory.referenceCount * 4, 16);
-      score += freqBonus;
+      // 4. Frequency of reference (+2 points per reference, capped at +30)
+const freqBonus = Math.min(memory.referenceCount * 2, 30);
+score += freqBonus;
 
       // 5. Recency calculation (adds up to 12 points for newer memories)
       // Newer memories get more points, fading older ones

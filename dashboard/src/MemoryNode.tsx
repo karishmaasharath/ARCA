@@ -9,6 +9,8 @@ interface MemoryNodeProps {
     content: string;
     type: MemoryType;
     importanceScore: number;
+    referenceCount: number;
+    embedding?: number[];
     pinned: boolean;
     onPin: (id: string) => void;
     onDelete: (id: string) => void;
@@ -63,6 +65,13 @@ export const MemoryNode = memo(({ data }: MemoryNodeProps) => {
       <p className="text-xs font-mono leading-relaxed line-clamp-3 mb-2 bg-[#050b14]/50 p-1.5 rounded border border-white/5 select-none">
         {data.content}
       </p>
+      <div className="mb-2 text-[10px] font-mono text-gray-400 space-y-0.5">
+  <div>Importance: {Math.round(data.importanceScore)}</div>
+  <div>Refs: {data.referenceCount}</div>
+  <div>
+    Embedding: {data.embedding ? "yes" : "no"}
+  </div>
+</div>
 
       <div className="flex items-center justify-between pt-1 border-t border-white/5">
         {data.type === 'immutable' ? (

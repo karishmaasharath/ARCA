@@ -227,14 +227,16 @@ export default function App() {
         type: 'memoryNode',
         position: { x, y },
         data: {
-          id: mem.id,
-          content: mem.content,
-          type: mem.type,
-          importanceScore: mem.importanceScore,
-          pinned: mem.pinned,
-          onPin: handlePin,
-          onDelete: handleDelete
-        }
+  id: mem.id,
+  content: mem.content,
+  type: mem.type,
+  importanceScore: mem.importanceScore,
+  referenceCount: mem.referenceCount,
+  embedding: mem.embedding,
+  pinned: mem.pinned,
+  onPin: handlePin,
+  onDelete: handleDelete
+}
       });
 
       // Construct relationship edges
@@ -470,6 +472,12 @@ export default function App() {
                           <p className="text-[11px] text-gray-200 font-mono leading-normal break-words bg-navy-dark/40 p-2 rounded border border-white/5 select-text selection:bg-teal selection:text-navy-dark mb-1">
                             {mem.content}
                           </p>
+
+                          <div className="mb-2 text-[9px] font-mono text-gray-400 space-y-0.5">
+  <div>Importance: {Math.round(mem.importanceScore)}</div>
+  <div>Refs: {mem.referenceCount}</div>
+  <div>Embedding: {mem.embedding ? "yes" : "no"}</div>
+</div>
 
                           {/* Actions */}
                           <div className="flex justify-end gap-2 text-[8px] font-mono">
