@@ -8,6 +8,8 @@ export interface Memory {
   importanceScore: number; // 0 - 100
   referenceCount: number;
   relatedMemories: string[]; // IDs of related memories
+  expired: boolean;
+  archived: boolean;
   confidenceScore: number;   // 0 - 100
   confidenceReason?: string;
   embedding?: number[];

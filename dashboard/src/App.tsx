@@ -123,6 +123,8 @@ export default function App() {
   // State Management
   const [memories, setMemories] = useState<Memory[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  
   
   // Filtering & Sorting State
   const [selectedTypes, setSelectedTypes] = useState<Record<MemoryType, boolean>>({
@@ -154,6 +156,7 @@ export default function App() {
 
   // Fetch memories from DB
   const refreshMemories = useCallback(async () => {
+    await arca.recalculateScores();
     const store = arca.getStore();
     let data = await store.getAll();
     
@@ -283,13 +286,31 @@ export default function App() {
   // Filters & sorting memoization
   const filteredAndSortedMemories = useMemo(() => {
     const filtered = memories.filter(mem => {
-      const matchesSearch = mem.content.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesType = selectedTypes[mem.type];
-      const matchesPinned = 
-        pinnedFilter === 'all' ? true :
-        pinnedFilter === 'pinned' ? mem.pinned :
-        !mem.pinned;
-      return matchesSearch && matchesType && matchesPinned;
+
+      // Hide archived memories
+      if (mem.archived && !showArchived) {
+        return false;
+      }
+    
+      const matchesSearch =
+        mem.content.toLowerCase().includes(searchQuery.toLowerCase());
+    
+      const matchesType =
+        selectedTypes[mem.type];
+    
+      const matchesPinned =
+        pinnedFilter === "all"
+          ? true
+          : pinnedFilter === "pinned"
+          ? mem.pinned
+          : !mem.pinned;
+    
+      return (
+        matchesSearch &&
+        matchesType &&
+        matchesPinned
+      );
+    
     });
 
     filtered.sort((a, b) => {
@@ -388,6 +409,17 @@ export default function App() {
               })}
             </div>
 
+            {/* Archived Toggle */}
+<label className="flex items-center gap-2 text-[10px] font-mono text-gray-300 cursor-pointer">
+  <input
+    type="checkbox"
+    checked={showArchived}
+    onChange={(e) => setShowArchived(e.target.checked)}
+    className="accent-teal"
+  />
+  Show Archived Memories
+</label>
+
             {/* Pinned filter & Sort By */}
             <div className="grid grid-cols-2 gap-3 pt-0.5">
               {/* Pinned State */}
@@ -476,6 +508,8 @@ export default function App() {
                           <div className="mb-2 text-[9px] font-mono text-gray-400 space-y-0.5">
   <div>Importance: {Math.round(mem.importanceScore)}</div>
   <div>Refs: {mem.referenceCount}</div>
+  <div>Expired: {mem.expired ? "yes" : "no"}</div>
+  <div>Archived: {mem.archived ? "yes" : "no"}</div>
   <div>Embedding: {mem.embedding ? "yes" : "no"}</div>
 </div>
 

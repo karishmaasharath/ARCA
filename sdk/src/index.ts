@@ -297,6 +297,8 @@ const embedding =
       timestamp: Date.now(),
       importanceScore: 0, // calculated next
       referenceCount: 0,
+      expired: false,
+      archived: false,
       relatedMemories,
       confidenceScore,
       confidenceReason,
@@ -324,13 +326,15 @@ const embedding =
     const scored =
       ImportanceScorer.calculateScores(memories);
   
-    const updated =
+    const decayed =
       MemoryLifecycle.applyDecay(scored);
   
-    await this.store.saveAll(updated);
+    const archived =
+      MemoryLifecycle.archiveExpired(decayed);
+  
+    await this.store.saveAll(archived);
   
   }
-
   /**
    * Promotes a memory's type (e.g. Ephemeral -> Session).
    */
@@ -360,6 +364,29 @@ const embedding =
     }
   }
 
+  /**
+ * Restores an archived memory.
+ */
+public async restore(id: string): Promise<void> {
+  const memories = await this.store.getAll();
+
+  const idx = memories.findIndex(
+    m => m.id === id
+  );
+
+  if (idx >= 0) {
+
+    memories[idx] =
+      MemoryLifecycle.restoreMemory(
+        memories[idx]
+      );
+
+    await this.store.saveAll(memories);
+    await this.recalculateScores();
+
+  }
+
+}
   /**
    * Deletes a memory and removes any relations pointing to it.
    */

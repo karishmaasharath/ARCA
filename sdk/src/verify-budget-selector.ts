@@ -10,7 +10,14 @@ function generateContentForTokens(targetTokens: number): string {
   return content;
 }
 
-function createMockMemory(id: string, size: number, importanceScore: number, referenceCount: number, confidenceScore: number, timestamp: number): Memory {
+function createMockMemory(
+  id: string,
+  size: number,
+  importanceScore: number,
+  referenceCount: number,
+  confidenceScore: number,
+  timestamp: number
+): Memory {
   return {
     id,
     content: generateContentForTokens(size),
@@ -19,7 +26,10 @@ function createMockMemory(id: string, size: number, importanceScore: number, ref
     importanceScore,
     referenceCount,
     confidenceScore,
+    confidenceReason: "Mock memory",
     pinned: false,
+    expired: false,
+    archived: false,
     relatedMemories: []
   };
 }
