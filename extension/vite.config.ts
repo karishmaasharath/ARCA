@@ -7,9 +7,9 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        background: resolve(__dirname, 'src/background.ts'),
-        content: resolve(__dirname, 'src/content.ts'),
-        popup: resolve(__dirname, 'popup.html')
+        background: resolve(__dirname, 'background/background.ts'),
+        content: resolve(__dirname, 'content/platformDetector.ts'),
+        popup: resolve(__dirname, 'popup/popup.html')
       },
       output: {
         entryFileNames: '[name].js',
