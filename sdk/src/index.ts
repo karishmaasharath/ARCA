@@ -329,9 +329,13 @@ const embedding =
     const decayed =
       MemoryLifecycle.applyDecay(scored);
   
-    const archived =
+      const archived =
       MemoryLifecycle.archiveExpired(decayed);
-  
+    
+    console.log(
+      archived.filter(m => m.archived)
+    );
+    
     await this.store.saveAll(archived);
   
   }

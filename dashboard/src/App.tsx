@@ -158,7 +158,6 @@ export default function App() {
 
   // Fetch memories from DB
   const refreshMemories = useCallback(async () => {
-    await arca.recalculateScores();
     const store = arca.getStore();
     let data = await store.getAll();
     
@@ -169,6 +168,14 @@ export default function App() {
       }
       data = await store.getAll();
     }
+    console.table(
+      data.map(m => ({
+        content: m.content,
+        archived: m.archived,
+        expired: m.expired
+      }))
+    );
+    
     setMemories(data);
   }, [arca]);
 
@@ -185,6 +192,14 @@ export default function App() {
     await arca.delete(id);
     await refreshMemories();
   }, [arca, refreshMemories]);
+
+  const handleRestore = useCallback(
+    async (id: string) => {
+      await arca.restore(id);
+      await refreshMemories();
+    },
+    [arca, refreshMemories]
+  );
 
   const handlePromote = useCallback(async (id: string, type: MemoryType) => {
     await arca.promote(id, type);
@@ -308,12 +323,7 @@ export default function App() {
       const matchesType =
         selectedTypes[mem.type];
     
-      const matchesPinned =
-        pinnedFilter === "all"
-          ? true
-          : pinnedFilter === "pinned"
-          ? mem.pinned
-          : !mem.pinned;
+        const matchesPinned = true;
     
       return (
         matchesSearch &&
@@ -531,26 +541,42 @@ export default function App() {
                            </div>
 
                           {/* Actions */}
-                          <div className="flex justify-end gap-2 text-[8px] font-mono">
-                            {mem.type !== 'immutable' && (
-                              <>
-                                <button
-                                  onClick={() => handlePromote(mem.id, 'immutable')}
-                                  className="text-purple-400 hover:text-purple-300 font-bold flex items-center gap-0.5"
-                                  title="Promote to Immutable Rule"
-                                >
-                                  <Lock size={8} /> Lock
-                                </button>
-                                <button
-                                  onClick={() => handleDelete(mem.id)}
-                                  className="text-red-400 hover:text-red-300 font-bold flex items-center gap-0.5"
-                                  title="Delete Memory"
-                                >
-                                  <Trash2 size={8} /> Delete
-                                </button>
-                              </>
-                            )}
-                          </div>
+                          {/* Actions */}
+<div className="flex justify-end gap-2 text-[8px] font-mono">
+
+{mem.archived ? (
+
+  <button
+    onClick={() => handleRestore(mem.id)}
+    className="text-green-400 hover:text-green-300 font-bold flex items-center gap-0.5"
+    title="Restore Memory"
+  >
+    Restore
+  </button>
+
+) : mem.type !== "immutable" ? (
+
+  <>
+    <button
+      onClick={() => handlePromote(mem.id, "immutable")}
+      className="text-purple-400 hover:text-purple-300 font-bold flex items-center gap-0.5"
+      title="Promote to Immutable Rule"
+    >
+      <Lock size={8} /> Lock
+    </button>
+
+    <button
+      onClick={() => handleDelete(mem.id)}
+      className="text-red-400 hover:text-red-300 font-bold flex items-center gap-0.5"
+      title="Delete Memory"
+    >
+      <Trash2 size={8} /> Delete
+    </button>
+  </>
+
+) : null}
+
+</div>
                         </div>
                       ))}
                     </div>

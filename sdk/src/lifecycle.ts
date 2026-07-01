@@ -9,7 +9,8 @@ export class MemoryLifecycle {
     memories: Memory[]
   ): Memory[] {
 
-    const now = Date.now();
+    const now =
+  Date.now() + (30 * 24 * 60 * 60 * 1000);
 
     return memories.map(memory => {
 
@@ -36,6 +37,17 @@ export class MemoryLifecycle {
         10,
         memory.importanceScore - decay
       );
+
+      console.log(
+        memory.content,
+        "Importance:",
+        memory.importanceScore,
+        "Decay:",
+        decay,
+        "New:",
+        newImportance
+      );
+      
 
       return {
         ...memory,
