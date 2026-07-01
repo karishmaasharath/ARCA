@@ -5,6 +5,8 @@ import { BrainCircuit } from 'lucide-react';
 export function Popup() {
   const [platform, setPlatform] = useState<string>('Unknown');
   const [devMode, setDevMode] = useState<boolean>(false);
+  const [lastPlatform, setLastPlatform] = useState<string>('Unknown');
+  const [lastPrompt, setLastPrompt] = useState<string>('Waiting...');
 
   useEffect(() => {
     if (typeof chrome !== 'undefined' && chrome.tabs) {
@@ -21,7 +23,24 @@ export function Popup() {
         }
       });
     }
+
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.sendMessage({ type: 'ARCA_GET_LAST_OBSERVATION' }, (response) => {
+        if (response) {
+          setLastPlatform(response.platform || 'Unknown');
+          setLastPrompt(response.prompt || 'Waiting...');
+        }
+      });
+    }
   }, []);
+
+  const formatPrompt = (text: string) => {
+    if (text === 'Waiting...') return text;
+    if (text.length > 60) {
+      return text.substring(0, 60) + '...';
+    }
+    return text;
+  };
 
   return (
     <div className="popup-container">
@@ -56,6 +75,40 @@ export function Popup() {
             />
             <span className="slider"></span>
           </label>
+        </div>
+      </div>
+
+      {/* Observation Section */}
+      <div className="card">
+        <div className="row">
+          <span className="label">Observation Status</span>
+          {platform !== 'Unknown' ? (
+            <span className="badge badge-green">🟢 Listening</span>
+          ) : (
+            <span className="badge" style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#94a3b8', border: '1px solid rgba(255, 255, 255, 0.1)' }}>⚪ Unsupported Site</span>
+          )}
+        </div>
+        <div className="row">
+          <span className="label">Last Detected Platform</span>
+          <span className="value">{lastPlatform !== 'Unknown' && lastPlatform !== '' ? lastPlatform : '—'}</span>
+        </div>
+        <div className="row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '4px', marginTop: '4px' }}>
+          <span className="label">Last Prompt</span>
+          <span className="value" style={{ 
+            fontFamily: 'JetBrains Mono, monospace', 
+            fontSize: '10px', 
+            backgroundColor: 'rgba(0, 0, 0, 0.2)', 
+            padding: '6px 8px', 
+            borderRadius: '4px', 
+            width: '100%', 
+            boxSizing: 'border-box',
+            wordBreak: 'break-all',
+            whiteSpace: 'pre-wrap',
+            color: lastPrompt === 'Waiting...' ? '#64748b' : '#e2e8f0',
+            border: '1px solid rgba(255, 255, 255, 0.05)'
+          }}>
+            {formatPrompt(lastPrompt)}
+          </span>
         </div>
       </div>
 

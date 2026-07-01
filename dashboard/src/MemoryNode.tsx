@@ -14,6 +14,7 @@ interface MemoryNodeProps {
     pinned: boolean;
     onPin: (id: string) => void;
     onDelete: (id: string) => void;
+    relatedMemories?: string[];
   };
 }
 
@@ -66,12 +67,19 @@ export const MemoryNode = memo(({ data }: MemoryNodeProps) => {
         {data.content}
       </p>
       <div className="mb-2 text-[10px] font-mono text-gray-400 space-y-0.5">
-  <div>Importance: {Math.round(data.importanceScore)}</div>
-  <div>Refs: {data.referenceCount}</div>
-  <div>
-    Embedding: {data.embedding ? "yes" : "no"}
-  </div>
-</div>
+        <div>Importance: {Math.round(data.importanceScore)}</div>
+        <div>Refs: {data.referenceCount}</div>
+        <div>
+          Embedding: {data.embedding ? "yes" : "no"}
+        </div>
+        <div>
+          Related Memories: {data.relatedMemories && data.relatedMemories.length > 0 ? (
+            <span className="text-teal font-bold">{data.relatedMemories.length} linked {data.relatedMemories.length === 1 ? 'memory' : 'memories'}</span>
+          ) : (
+            <span className="text-gray-500">None</span>
+          )}
+        </div>
+      </div>
 
       <div className="flex items-center justify-between pt-1 border-t border-white/5">
         {data.type === 'immutable' ? (

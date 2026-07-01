@@ -142,13 +142,15 @@ export default function App() {
   );
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformType>('chatgpt');
   const [optimizedResult, setOptimizedResult] = useState<{
+    originalPrompt: string;
+    targetPlatform: PlatformType;
     optimizedPrompt: string;
     metrics: ContextHealth;
     activeMemories: Memory[];
     fadedMemories: Memory[];
   } | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [activePlaygroundTab, setActivePlaygroundTab] = useState<'optimized' | 'pipeline'>('optimized');
+  const [activePlaygroundTab, setActivePlaygroundTab] = useState<'optimized' | 'pipeline' | 'inspector'>('optimized');
 
   // React Flow State
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -230,16 +232,17 @@ export default function App() {
         type: 'memoryNode',
         position: { x, y },
         data: {
-  id: mem.id,
-  content: mem.content,
-  type: mem.type,
-  importanceScore: mem.importanceScore,
-  referenceCount: mem.referenceCount,
-  embedding: mem.embedding,
-  pinned: mem.pinned,
-  onPin: handlePin,
-  onDelete: handleDelete
-}
+          id: mem.id,
+          content: mem.content,
+          type: mem.type,
+          importanceScore: mem.importanceScore,
+          referenceCount: mem.referenceCount,
+          embedding: mem.embedding,
+          pinned: mem.pinned,
+          onPin: handlePin,
+          onDelete: handleDelete,
+          relatedMemories: mem.relatedMemories
+        }
       });
 
       // Construct relationship edges
@@ -266,7 +269,14 @@ export default function App() {
     setTimeout(async () => {
       try {
         const result = await arca.optimize(promptInput, selectedPlatform);
-        setOptimizedResult(result);
+        setOptimizedResult({
+          originalPrompt: promptInput,
+          targetPlatform: selectedPlatform,
+          optimizedPrompt: result.optimizedPrompt,
+          metrics: result.metrics,
+          activeMemories: result.activeMemories,
+          fadedMemories: result.fadedMemories
+        });
         await refreshMemories();
       } catch (err) {
         console.error(err);
@@ -506,12 +516,19 @@ export default function App() {
                           </p>
 
                           <div className="mb-2 text-[9px] font-mono text-gray-400 space-y-0.5">
-  <div>Importance: {Math.round(mem.importanceScore)}</div>
-  <div>Refs: {mem.referenceCount}</div>
-  <div>Expired: {mem.expired ? "yes" : "no"}</div>
-  <div>Archived: {mem.archived ? "yes" : "no"}</div>
-  <div>Embedding: {mem.embedding ? "yes" : "no"}</div>
-</div>
+                             <div>Importance: {Math.round(mem.importanceScore)}</div>
+                             <div>Refs: {mem.referenceCount}</div>
+                             <div>Expired: {mem.expired ? "yes" : "no"}</div>
+                             <div>Archived: {mem.archived ? "yes" : "no"}</div>
+                             <div>Embedding: {mem.embedding ? "yes" : "no"}</div>
+                             <div>
+                               Related Memories: {mem.relatedMemories && mem.relatedMemories.length > 0 ? (
+                                 <span className="text-teal font-bold">{mem.relatedMemories.length} linked {mem.relatedMemories.length === 1 ? 'memory' : 'memories'}</span>
+                               ) : (
+                                 <span className="text-gray-500">None</span>
+                               )}
+                             </div>
+                           </div>
 
                           {/* Actions */}
                           <div className="flex justify-end gap-2 text-[8px] font-mono">
@@ -628,6 +645,16 @@ export default function App() {
                   }`}
                 >
                   Simulation Playground
+                </button>
+                <button
+                  onClick={() => setActivePlaygroundTab('inspector')}
+                  className={`px-4 py-1.5 rounded text-xs font-mono uppercase transition-colors ${
+                    activePlaygroundTab === 'inspector' 
+                      ? 'bg-slate-dark text-white border border-teal/40' 
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  Optimization Inspector
                 </button>
                 <button
                   onClick={() => setActivePlaygroundTab('pipeline')}
@@ -775,6 +802,226 @@ export default function App() {
                     <span className="text-gray-400">Semantic Overlap Link</span>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {activePlaygroundTab === 'inspector' && (
+              <div className="flex-1 p-5 overflow-y-auto max-h-[75vh]">
+                {!optimizedResult ? (
+                  <div className="h-64 flex flex-col items-center justify-center text-gray-500 font-mono text-xs gap-2">
+                    <div>No optimization run recorded yet.</div>
+                    <button
+                      onClick={() => setActivePlaygroundTab('optimized')}
+                      className="px-3 py-1.5 bg-teal hover:bg-teal-dark text-navy-dark font-bold rounded font-mono text-[10px] transition-colors"
+                    >
+                      Go to Simulation Playground
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                    
+                    {/* Left Side: Pipeline, Summary Metrics, Counts (5 cols) */}
+                    <div className="lg:col-span-5 space-y-4">
+                      
+                      {/* Optimization Summary Card */}
+                      <div className="bg-navy-dark/40 border border-slate-dark/80 rounded-lg p-4 space-y-3.5">
+                        <h3 className="text-xs font-bold font-mono text-white border-b border-slate-dark/60 pb-1.5 uppercase tracking-wider">
+                          1. Optimization Summary
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3 text-[10px] font-mono">
+                          <div className="bg-navy-dark/60 border border-slate-dark/40 p-2 rounded">
+                            <span className="text-gray-500 block">TARGET PLATFORM</span>
+                            <span className="text-teal font-bold uppercase">{optimizedResult.targetPlatform}</span>
+                          </div>
+                          <div className="bg-navy-dark/60 border border-slate-dark/40 p-2 rounded">
+                            <span className="text-gray-500 block">CONTEXT HEALTH</span>
+                            <span className="text-white font-bold">{optimizedResult.metrics.healthScore}%</span>
+                          </div>
+                          <div className="bg-navy-dark/60 border border-slate-dark/40 p-2 rounded">
+                            <span className="text-gray-500 block">RULE PRESERVATION</span>
+                            <span className="text-white font-bold">{optimizedResult.metrics.rulePreservationRate}%</span>
+                          </div>
+                          <div className="bg-navy-dark/60 border border-slate-dark/40 p-2 rounded">
+                            <span className="text-gray-500 block">TOKEN SAVINGS</span>
+                            <span className="text-teal font-bold">{optimizedResult.metrics.tokenSavingsRate}%</span>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-1.5">
+                          <span className="text-[9px] font-mono text-gray-500 uppercase font-bold">Original Prompt</span>
+                          <div className="bg-navy-dark/60 border border-slate-dark/60 rounded p-2 text-[10px] font-mono max-h-24 overflow-y-auto whitespace-pre-wrap text-gray-400 select-text leading-relaxed">
+                            {optimizedResult.originalPrompt}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <span className="text-[9px] font-mono text-gray-500 uppercase font-bold">Optimized Prompt</span>
+                          <div className="bg-navy-dark/60 border border-slate-dark/60 rounded p-2 text-[10px] font-mono max-h-24 overflow-y-auto whitespace-pre-wrap text-gray-300 select-text leading-relaxed">
+                            {optimizedResult.optimizedPrompt}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Retrieval Summary Card */}
+                      <div className="bg-navy-dark/40 border border-slate-dark/80 rounded-lg p-4 space-y-3">
+                        <h3 className="text-xs font-bold font-mono text-white border-b border-slate-dark/60 pb-1.5 uppercase tracking-wider">
+                          2. Retrieval Summary
+                        </h3>
+                        <div className="grid grid-cols-3 gap-2 border border-slate-dark/60 rounded p-3 bg-navy-dark/60 font-mono text-xs">
+                          <div className="text-center">
+                            <div className="text-[9px] text-gray-500 uppercase">Total</div>
+                            <div className="text-lg font-bold text-teal mt-1">
+                              {optimizedResult.activeMemories.length + optimizedResult.fadedMemories.length}
+                            </div>
+                          </div>
+                          <div className="text-center border-l border-slate-dark/60">
+                            <div className="text-[9px] text-gray-500 uppercase">Active</div>
+                            <div className="text-lg font-bold text-green-400 mt-1">
+                              {optimizedResult.activeMemories.length}
+                            </div>
+                          </div>
+                          <div className="text-center border-l border-slate-dark/60">
+                            <div className="text-[9px] text-gray-500 uppercase">Faded</div>
+                            <div className="text-lg font-bold text-red-400 mt-1">
+                              {optimizedResult.fadedMemories.length}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Optimization Pipeline Card */}
+                      <div className="bg-navy-dark/40 border border-slate-dark/80 rounded-lg p-4 space-y-3">
+                        <h3 className="text-xs font-bold font-mono text-white border-b border-slate-dark/60 pb-1.5 uppercase tracking-wider">
+                          5. Optimization Pipeline
+                        </h3>
+                        <div className="flex flex-col items-center justify-center py-3 bg-navy-dark/60 border border-slate-dark/60 rounded font-mono text-[10px]">
+                          <div className="px-3 py-1.5 border border-teal/40 bg-teal/5 text-teal rounded shadow-sm shadow-teal/10 w-44 text-center">
+                            User Prompt
+                          </div>
+                          <div className="my-1 text-gray-400">↓</div>
+                          <div className="px-3 py-1.5 border border-slate-dark bg-navy rounded w-44 text-center text-gray-300">
+                            Memory Retrieval
+                          </div>
+                          <div className="my-1 text-gray-400">↓</div>
+                          <div className="px-3 py-1.5 border border-slate-dark bg-navy rounded w-44 text-center text-gray-300">
+                            Memory Selection
+                          </div>
+                          <div className="my-1 text-gray-400">↓</div>
+                          <div className="px-3 py-1.5 border border-slate-dark bg-navy rounded w-44 text-center text-gray-300">
+                            Context Optimization
+                          </div>
+                          <div className="my-1 text-gray-400">↓</div>
+                          <div className="px-3 py-1.5 border border-teal/40 bg-teal/5 text-teal rounded shadow-sm shadow-teal/10 w-44 text-center">
+                            Optimized Prompt
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* Right Side: Active Memories & Faded Memories (7 cols) */}
+                    <div className="lg:col-span-7 space-y-4">
+                      
+                      {/* Active Memories Card */}
+                      <div className="bg-navy-dark/40 border border-slate-dark/80 rounded-lg p-4 space-y-3">
+                        <h3 className="text-xs font-bold font-mono text-white border-b border-slate-dark/60 pb-1.5 uppercase tracking-wider">
+                          3. Active Memories ({optimizedResult.activeMemories.length})
+                        </h3>
+                        <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
+                          {optimizedResult.activeMemories.length === 0 ? (
+                            <div className="text-gray-500 text-xs font-mono">No active memories.</div>
+                          ) : (
+                            optimizedResult.activeMemories.map(mem => {
+                              const config = HIERARCHY_CONFIG.find(c => c.type === mem.type);
+                              
+                              // Derive metadata-driven Selection Reason
+                              let selectionReason = 'Retrieved based on context relevance';
+                              if (mem.pinned) {
+                                selectionReason = 'Pinned by developer';
+                              } else if (mem.type === 'immutable') {
+                                selectionReason = 'Immutable system rule constraint';
+                              } else if (mem.importanceScore >= 70) {
+                                selectionReason = `High importance score (${Math.round(mem.importanceScore)})`;
+                              } else if (mem.importanceScore < 40) {
+                                selectionReason = `Low importance score (${Math.round(mem.importanceScore)})`;
+                              } else {
+                                selectionReason = `Medium importance relevance (Score: ${Math.round(mem.importanceScore)})`;
+                              }
+
+                              return (
+                                <div key={mem.id} className="border border-slate-dark/60 p-2.5 rounded bg-navy-light/10 flex flex-col gap-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className={`text-[8px] px-1.5 py-0.2 rounded font-mono uppercase font-bold tracking-wider border ${config?.badgeStyle || ''}`}>
+                                      {config?.badgeText || mem.type}
+                                    </span>
+                                    {mem.pinned && (
+                                      <span className="text-blue-400 flex items-center gap-1 text-[8px] font-mono">
+                                        <Pin size={8} className="fill-blue-400 text-blue-400" /> Pinned
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] text-gray-200 font-mono leading-relaxed select-text">
+                                    {mem.content}
+                                  </p>
+                                  <div className="text-[9px] text-gray-500 font-mono border-t border-slate-dark/30 pt-1 mt-1">
+                                    Selection Reason: <span className="text-gray-400">{selectionReason}</span>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Faded Memories Card */}
+                      <div className="bg-navy-dark/40 border border-slate-dark/80 rounded-lg p-4 space-y-3">
+                        <h3 className="text-xs font-bold font-mono text-white border-b border-slate-dark/60 pb-1.5 uppercase tracking-wider">
+                          4. Faded Memories ({optimizedResult.fadedMemories.length})
+                        </h3>
+                        <div className="text-[9px] font-mono text-gray-400 italic">
+                          Excluded from the current optimized context.
+                        </div>
+                        <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                          {optimizedResult.fadedMemories.length === 0 ? (
+                            <div className="text-gray-500 text-xs font-mono">No faded memories.</div>
+                          ) : (
+                            optimizedResult.fadedMemories.map(mem => {
+                              const config = HIERARCHY_CONFIG.find(c => c.type === mem.type);
+                              
+                              // Derive metadata-driven Exclusion Reason
+                              let exclusionReason = mem.explanation || 'Excluded due to token budget limits';
+                              if (mem.expired) {
+                                exclusionReason = 'Expired memory lifetime';
+                              } else if (mem.archived) {
+                                exclusionReason = 'Archived developer memory';
+                              } else if (mem.importanceScore < 40 && !mem.explanation) {
+                                exclusionReason = `Low importance score (${Math.round(mem.importanceScore)})`;
+                              }
+
+                              return (
+                                <div key={mem.id} className="border border-slate-dark/40 p-2.5 rounded bg-navy-dark/20 opacity-70 flex flex-col gap-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className={`text-[8px] px-1.5 py-0.2 rounded font-mono uppercase font-bold tracking-wider border ${config?.badgeStyle || ''} opacity-80`}>
+                                      {config?.badgeText || mem.type}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-gray-400 font-mono leading-relaxed select-text">
+                                    {mem.content}
+                                  </p>
+                                  <div className="text-[9px] text-gray-500 font-mono border-t border-slate-dark/30 pt-1 mt-1">
+                                    Exclusion Reason: <span className="text-gray-400">{exclusionReason}</span>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+
+                    </div>
+
+                  </div>
+                )}
               </div>
             )}
           </div>
