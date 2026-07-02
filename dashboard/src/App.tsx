@@ -323,7 +323,12 @@ export default function App() {
       const matchesType =
         selectedTypes[mem.type];
     
-        const matchesPinned = true;
+        const matchesPinned =
+  pinnedFilter === "all"
+    ? true
+    : pinnedFilter === "pinned"
+    ? mem.pinned
+    : !mem.pinned;
     
       return (
         matchesSearch &&

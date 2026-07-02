@@ -1,6 +1,6 @@
-import { BudgetSelector } from './budgetSelector';
-import { Memory } from './types';
-import { estimateTokens } from './utils';
+import { BudgetSelector } from './budgetSelector.js';
+import { Memory } from './types.js';
+import { estimateTokens } from './utils.js';
 
 function generateContentForTokens(targetTokens: number): string {
   let content = 'word';

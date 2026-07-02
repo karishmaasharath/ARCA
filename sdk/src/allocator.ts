@@ -1,5 +1,18 @@
-import { ContextAllocation, PlatformConfig, PlatformType } from './types';
+import {
+  ContextAllocation,
+  PlatformConfig,
+  PlatformType,
+  Memory,
+  MemoryType
+} from './types';
 import { estimateTokens } from './utils';
+
+const SOURCE_PRIORITIES: Record<MemoryType, number> = {
+  immutable: 1,
+  persistent: 2,
+  session: 3,
+  ephemeral: 4
+};
 
 export class AdaptiveTokenAllocator {
   private static CONFIGS: Record<PlatformType, PlatformConfig> = {
@@ -26,12 +39,17 @@ export class AdaptiveTokenAllocator {
    * Defaults to 'local' if no known URL pattern is matched.
    */
   public static detectPlatform(url?: string): PlatformType {
-    const targetUrl = url || (typeof window !== 'undefined' ? window.location.href : '');
-    
+    const targetUrl =
+      url || (typeof window !== 'undefined' ? window.location.href : '');
+
     if (!targetUrl) return 'local';
 
     const normalized = targetUrl.toLowerCase();
-    if (normalized.includes('chatgpt.com') || normalized.includes('chat.openai.com')) {
+
+    if (
+      normalized.includes('chatgpt.com') ||
+      normalized.includes('chat.openai.com')
+    ) {
       return 'chatgpt';
     } else if (normalized.includes('claude.ai')) {
       return 'claude';
@@ -68,8 +86,9 @@ export class ContextAllocator {
     const promptTokens = estimateTokens(userPrompt);
     const safetyBuffer = options?.safetyBuffer ?? 500;
 
-    // Deterministic tiered heuristic for response reservation if not explicitly provided
+    // Deterministic tiered heuristic for response reservation
     let reservedResponseTokens = options?.reservedResponseTokens;
+
     if (reservedResponseTokens === undefined) {
       if (promptTokens < 1000) {
         reservedResponseTokens = 1000;
@@ -80,20 +99,32 @@ export class ContextAllocator {
       }
     }
 
-    let availableMemoryBudget = maxContextWindow - promptTokens - reservedResponseTokens - safetyBuffer;
+    let availableMemoryBudget =
+      maxContextWindow -
+      promptTokens -
+      reservedResponseTokens -
+      safetyBuffer;
+
     if (availableMemoryBudget < 0) {
       availableMemoryBudget = 0;
     }
 
     let remainingWindowCapacity = maxContextWindow - promptTokens;
+
     if (remainingWindowCapacity < 0) {
       remainingWindowCapacity = 0;
     }
 
-    const totalConsumed = promptTokens + reservedResponseTokens + safetyBuffer;
-    const budgetUtilization = Math.min(100, Math.round((totalConsumed / maxContextWindow) * 10000) / 100);
+    const totalConsumed =
+      promptTokens + reservedResponseTokens + safetyBuffer;
+
+    const budgetUtilization = Math.min(
+      100,
+      Math.round((totalConsumed / maxContextWindow) * 10000) / 100
+    );
 
     let allocationState: 'Healthy' | 'Warning' | 'Critical' = 'Healthy';
+
     if (budgetUtilization >= 95) {
       allocationState = 'Critical';
     } else if (budgetUtilization > 75) {
@@ -110,5 +141,32 @@ export class ContextAllocator {
       allocationState
     };
   }
-}
 
+  /**
+   * Sorts memories from highest to lowest priority.
+   */
+  public static prioritizeSources(memories: Memory[]): Memory[] {
+    return [...memories].sort((a, b) => {
+      return SOURCE_PRIORITIES[a.type] - SOURCE_PRIORITIES[b.type];
+    });
+  }
+
+  /**
+   * Returns a human-readable priority indicator.
+   */
+  public static getPriorityLabel(type: MemoryType): string {
+    switch (type) {
+      case 'immutable':
+        return 'High';
+
+      case 'persistent':
+        return 'Medium';
+
+      case 'session':
+        return 'Low';
+
+      case 'ephemeral':
+        return 'Lowest';
+    }
+  }
+}

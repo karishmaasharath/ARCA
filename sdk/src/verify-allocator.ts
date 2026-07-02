@@ -1,5 +1,5 @@
-import { ContextAllocator } from './allocator';
-import { ARCA } from './index';
+import { ContextAllocator } from './allocator.js';
+import { ARCA } from './index.js';
 
 async function runTests() {
   console.log('--- Starting ARCA Context Allocator Verification Tests ---\n');
