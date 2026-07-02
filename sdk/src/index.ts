@@ -31,6 +31,19 @@ export class ARCA {
     this.confidenceThreshold = threshold;
   }
 
+  /**
+ * Updates SDK configuration.
+ */
+public configure(options: {
+  confidenceThreshold?: number;
+}): void {
+
+  if (options.confidenceThreshold !== undefined) {
+    this.confidenceThreshold = options.confidenceThreshold;
+  }
+
+}
+
   // Getters for store and classifier
   public getStore(): MemoryStore {
     return this.store;
@@ -391,6 +404,31 @@ public async restore(id: string): Promise<void> {
   }
 
 }
+
+/**
+ * Archives a memory manually.
+ */
+public async archive(id: string): Promise<void> {
+
+  const memories = await this.store.getAll();
+
+  const idx = memories.findIndex(
+    m => m.id === id
+  );
+
+  if (idx >= 0) {
+
+    memories[idx] = {
+      ...memories[idx],
+      archived: true
+    };
+
+    await this.store.saveAll(memories);
+    await this.recalculateScores();
+
+  }
+
+}
   /**
    * Deletes a memory and removes any relations pointing to it.
    */
@@ -410,6 +448,13 @@ public async restore(id: string): Promise<void> {
     await this.store.saveAll(updated);
     await this.recalculateScores();
   }
+
+  /**
+ * Clears all stored memories.
+ */
+public async clear(): Promise<void> {
+  await this.store.clear();
+}
 
   /**
    * The core Context Governance pipeline.

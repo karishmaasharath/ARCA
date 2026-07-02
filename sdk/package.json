@@ -1,8 +1,25 @@
 {
   "name": "arca-sdk",
   "version": "1.0.0",
+  "description": "Adaptive Context Governance Framework SDK for semantic memory management and LLM context optimization.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "llm",
+    "ai",
+    "sdk",
+    "memory",
+    "context",
+    "prompt",
+    "typescript",
+    "chatgpt",
+    "claude",
+    "gemini"
+  ],
+  "license": "MIT",
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w"
