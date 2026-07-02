@@ -14,13 +14,14 @@ export class MemoryLifecycle {
 
     return memories.map(memory => {
 
-      // Immutable and pinned memories never decay
-      if (
-        memory.type === "immutable" ||
-        memory.pinned
-      ) {
-        return memory;
-      }
+     // Immutable, pinned, or protected memories never decay
+if (
+    memory.type === "immutable" ||
+    memory.pinned ||
+    memory.neverForget
+  ) {
+    return memory;
+  }
 
       // Days since last update
       const daysIdle =
@@ -68,10 +69,15 @@ export class MemoryLifecycle {
 
     return memories.map(memory => {
 
-        if (
-            memory.expired &&
-            !memory.archived
-          ) {
+        const shouldExpire =
+  memory.expireAfter !== undefined &&
+  Date.now() - memory.timestamp >= memory.expireAfter;
+
+if (
+  (memory.expired || shouldExpire) &&
+  !memory.archived &&
+  !memory.neverForget
+) {
           
             console.log(
               "Archiving:",

@@ -12,6 +12,10 @@ export interface Memory {
   archived: boolean;
   confidenceScore: number;   // 0 - 100
   confidenceReason?: string;
+  neverForget?: boolean;
+neverCompress?: boolean;
+expireAfter?: number;
+priorityOverride?: number;
   embedding?: number[];
   pinned: boolean;
   dependencyCount?: number;

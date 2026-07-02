@@ -142,12 +142,17 @@ export class ContextAllocator {
     };
   }
 
-  /**
-   * Sorts memories from highest to lowest priority.
-   */
   public static prioritizeSources(memories: Memory[]): Memory[] {
     return [...memories].sort((a, b) => {
-      return SOURCE_PRIORITIES[a.type] - SOURCE_PRIORITIES[b.type];
+      const priorityA =
+        a.priorityOverride ??
+        SOURCE_PRIORITIES[a.type];
+  
+      const priorityB =
+        b.priorityOverride ??
+        SOURCE_PRIORITIES[b.type];
+  
+      return priorityA - priorityB;
     });
   }
 

@@ -166,11 +166,14 @@ export class TokenCompressor {
       const origTok = estimateTokens(mem.content);
       originalTokens += origTok;
 
-      // Immutable memories never get compressed
-      if (mem.type === 'immutable') {
-        compressedTokens += origTok;
-        return mem;
-      }
+      // Immutable or protected memories never get compressed
+if (
+  mem.type === 'immutable' ||
+  mem.neverCompress
+) {
+  compressedTokens += origTok;
+  return mem;
+}
 
       const compressedContent = this.compressText(mem.content, strategy);
       const compTok = estimateTokens(compressedContent);
