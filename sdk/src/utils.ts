@@ -26,3 +26,9 @@ export function estimateTokens(text: string): number {
 export function generateId(): string {
   return Math.random().toString(36).substring(2, 11);
 }
+
+/**
+ * The current semantic version of the ARCA SDK.
+ * Keep this version in sync with the version field in package.json.
+ */
+export const SDK_VERSION = "1.0.0";

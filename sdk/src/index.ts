@@ -1,4 +1,4 @@
-import { Memory, MemoryType, ContextHealth, PlatformType, ValidationResult, ContextAllocation } from './types';
+import { Memory, MemoryType, ContextHealth, PlatformType, ValidationResult, ContextAllocation, MemoryExport, ImportResult } from './types';
 import { MemoryStore } from './store';
 import { SemanticClassifier, extractEntities, segmentText, isFiller, extractMemoryCandidate, calculateConfidence, Entity } from './classifier';
 import { ImportanceScorer } from './scorer';
@@ -7,7 +7,7 @@ import { TokenCompressor } from './compressor';
 import { ValidationEngine } from './validator';
 import { RepairEngine } from './repair';
 import { AdaptiveTokenAllocator, ContextAllocator } from './allocator';
-import { estimateTokens, generateId } from './utils';
+import { estimateTokens, generateId, SDK_VERSION } from './utils';
 import { MemoryRetriever } from './retriever';
 import { EmbeddingEngine } from './embedding';
 import { MemoryLifecycle } from "./lifecycle";
@@ -577,6 +577,170 @@ return {
   fadedMemories: faded,
   allocation
 };
+  }
+
+  /**
+   * Export all stored memories as a serialized JSON string.
+   */
+  public async exportMemories(): Promise<string> {
+    const memories = await this.store.getAll();
+    const exportData: MemoryExport = {
+      version: "1.0.0",
+      arcaVersion: SDK_VERSION,
+      exportedAt: new Date().toISOString(),
+      memories
+    };
+    return JSON.stringify(exportData, null, 2);
+  }
+
+  /**
+   * Import memories from a serialized JSON string.
+   * Merges imported memories with existing memories without duplicates.
+   */
+  public async importMemories(json: string): Promise<ImportResult> {
+    let parsed: any;
+    try {
+      parsed = JSON.parse(json);
+    } catch (e: any) {
+      throw new Error(`Invalid JSON: ${e.message || e}`);
+    }
+
+    if (typeof parsed !== 'object' || parsed === null) {
+      throw new Error("Invalid export structure: Root must be a JSON object.");
+    }
+
+    if (!parsed.version) {
+      throw new Error("Invalid export structure: Missing schema version.");
+    }
+
+    if (parsed.version !== "1.0.0") {
+      throw new Error(`Unsupported export version: "${parsed.version}". Only version "1.0.0" is supported.`);
+    }
+
+    if (!parsed.arcaVersion) {
+      throw new Error("Invalid export structure: Missing arcaVersion.");
+    }
+
+    if (!Array.isArray(parsed.memories)) {
+      throw new Error("Invalid export structure: memories field is missing or not an array.");
+    }
+
+    const existingMemories = await this.store.getAll();
+    const existingIds = new Set(existingMemories.map(m => m.id));
+
+    let importedCount = 0;
+    let skippedDuplicatesCount = 0;
+    let skippedInvalidCount = 0;
+    const warnings: string[] = [];
+
+    const validTypes = ['immutable', 'persistent', 'session', 'ephemeral'];
+
+    for (let i = 0; i < parsed.memories.length; i++) {
+      const mem = parsed.memories[i];
+      const identityStr = mem && typeof mem.id === 'string' ? `ID "${mem.id}"` : `index ${i}`;
+
+      if (typeof mem !== 'object' || mem === null) {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at index ${i}: entry is not an object.`);
+        continue;
+      }
+
+      // Check required fields
+      if (typeof mem.id !== 'string' || mem.id.trim() === '') {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at ${identityStr}: missing or empty 'id' field.`);
+        continue;
+      }
+
+      if (typeof mem.content !== 'string') {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at ${identityStr}: 'content' field must be a string.`);
+        continue;
+      }
+
+      if (typeof mem.type !== 'string' || !validTypes.includes(mem.type)) {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at ${identityStr}: 'type' field must be one of ${validTypes.join(', ')}.`);
+        continue;
+      }
+
+      if (typeof mem.timestamp !== 'number') {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at ${identityStr}: 'timestamp' field must be a number.`);
+        continue;
+      }
+
+      if (typeof mem.importanceScore !== 'number') {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at ${identityStr}: 'importanceScore' field must be a number.`);
+        continue;
+      }
+
+      if (typeof mem.referenceCount !== 'number') {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at ${identityStr}: 'referenceCount' field must be a number.`);
+        continue;
+      }
+
+      if (!Array.isArray(mem.relatedMemories)) {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at ${identityStr}: 'relatedMemories' field must be an array.`);
+        continue;
+      }
+
+      if (typeof mem.expired !== 'boolean') {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at ${identityStr}: 'expired' field must be a boolean.`);
+        continue;
+      }
+
+      if (typeof mem.archived !== 'boolean') {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at ${identityStr}: 'archived' field must be a boolean.`);
+        continue;
+      }
+
+      if (typeof mem.pinned !== 'boolean') {
+        skippedInvalidCount++;
+        warnings.push(`Skipped invalid entry at ${identityStr}: 'pinned' field must be a boolean.`);
+        continue;
+      }
+
+      // Check for duplicate IDs
+      if (existingIds.has(mem.id)) {
+        skippedDuplicatesCount++;
+        warnings.push(`Skipped duplicate entry at ${identityStr}: memory ID already exists in the database.`);
+        continue;
+      }
+
+      // Valid and non-duplicate. Import!
+      try {
+        const memoryToSave = { ...mem };
+        
+        // Regenerate embedding only if required and not present
+        if (!memoryToSave.embedding) {
+          memoryToSave.embedding = await EmbeddingEngine.generateEmbedding(memoryToSave.content);
+        }
+
+        await this.store.save(memoryToSave as Memory);
+        importedCount++;
+      } catch (err: any) {
+        skippedInvalidCount++;
+        warnings.push(`Failed to save valid memory entry at ${identityStr}: ${err.message || err}`);
+      }
+    }
+
+    if (importedCount > 0) {
+      await this.recalculateScores();
+    }
+
+    return {
+      success: true,
+      imported: importedCount,
+      skippedDuplicates: skippedDuplicatesCount,
+      skippedInvalid: skippedInvalidCount,
+      warnings
+    };
   }
 }
 export * from './types';

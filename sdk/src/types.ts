@@ -61,4 +61,17 @@ export interface BudgetSelectionResult {
   skippedTokens: number;
 }
 
+export interface MemoryExport {
+  version: string;      // Export schema version (e.g., "1.0.0")
+  arcaVersion: string;  // ARCA SDK version (e.g., "1.0.0")
+  exportedAt: string;   // ISO timestamp string
+  memories: Memory[];
+}
 
+export interface ImportResult {
+  success: boolean;
+  imported: number;
+  skippedDuplicates: number;
+  skippedInvalid: number;
+  warnings: string[];
+}
