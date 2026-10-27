@@ -219,4 +219,6 @@ MIT License.
 
 # 👨‍💻 Authors
 
-Developed as part of the **ARCA (Adaptive Context Governance Framework)** research project for efficient semantic memory management and context optimization in Large Language Models.
+## Authors
+
+ARCA was developed collaboratively by **Karishmaa Sharath** and **Jyotsna Rajkumar**.
